@@ -1,0 +1,20 @@
+{
+  "id": "gps-tracker",
+  "name": "Radio positions",
+  "version": "0.1.0",
+  "description": "Track radio GPS positions, recent trails and recorded fixes on an offline coordinate map.",
+  "api": 1,
+  "access": "listen",
+  "license": "GPL-3.0-or-later",
+  "screenshots": [
+    {
+      "path": "screenshots/desktop.png",
+      "caption": "Fictional demo positions on the desktop coordinate map"
+    },
+    {
+      "path": "screenshots/phone.png",
+      "caption": "Fictional demo positions at phone width"
+    }
+  ],
+  "repository": "https://github.com/n71fs/trunk-recorder-gps-tracker"
+}

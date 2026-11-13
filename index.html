@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark light">
+  <title>Radio positions · Trunk Recorder Pro</title>
+  <link rel="stylesheet" href="./style.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand"><svg viewBox="0 0 32 32" aria-hidden="true"><circle cx="16" cy="16" r="11"/><path d="M16 1v9m0 12v9M1 16h9m12 0h9"/><circle cx="16" cy="16" r="3"/></svg><div><p class="eyebrow">Trunk Recorder Pro</p><h1>Radio positions</h1></div></div>
+    <div class="actions"><span id="connection" class="chip" role="status">Connecting…</span><button id="export" disabled>Export GeoJSON</button></div>
+  </header>
+  <main>
+    <div id="notice" class="banner" role="status">Waiting for the recorder. Positions appear when a radio sends a GPS fix.</div>
+    <section class="stats" aria-label="Position summary">
+      <div><span>Located radios</span><strong id="count">0</strong><small>Across received systems</small></div>
+      <div><span>Seen in 5 min</span><strong id="recent">0</strong><small>Last position received</small></div>
+      <div><span>Protocols seen</span><strong id="protocol-count">0</strong><small>From decoded coordinates</small></div>
+      <div><span>Latest position</span><strong id="last">—</strong><small id="last-detail">Waiting for a GPS fix</small></div>
+    </section>
+    <form id="filters" class="filters" role="search">
+      <label class="search">Find a radio<input id="search" type="search" placeholder="Unit ID, name or talkgroup"></label>
+      <label>System<select id="system"><option value="">All systems</option></select></label>
+      <label>Protocol<select id="protocol"><option value="">All protocols</option></select></label>
+      <label>Last position<select id="age"><option value="0">Any time</option><option value="300000">Within 5 minutes</option><option value="3600000">Within 1 hour</option><option value="86400000">Within 24 hours</option></select></label>
+    </form>
+    <div class="workspace">
+      <section class="map-panel" aria-label="Position map">
+        <div class="panel-head"><h2>Position map</h2><div class="actions"><label class="toggle"><input id="trails" type="checkbox" checked>Trails</label><button id="fit">Fit radios</button></div></div>
+        <div class="map-wrap"><canvas id="map" tabindex="0" aria-label="GPS coordinate map. Drag to pan; plus and minus to zoom; arrow keys to pan. Select radios from the list below."></canvas><div id="map-empty" class="map-empty"><div class="crosshair">⌖</div><h2>No positions yet</h2><p>GPS fixes from live logs and recorded calls will appear here.</p></div><div class="zoom"><button id="zoom-in" aria-label="Zoom in">+</button><button id="zoom-out" aria-label="Zoom out">−</button></div><span class="map-label">Offline coordinate map · north ↑</span></div>
+        <div class="map-footer"><span>Drag to pan · scroll to zoom</span><label class="toggle"><input id="tiles" type="checkbox">Local map tiles</label></div>
+      </section>
+      <aside class="detail-panel"><div class="panel-head"><h2>Selected radio</h2><span class="chip">GPS</span></div><div id="details" class="details"><p class="muted">Select a radio to see its coordinates and recent trail.</p></div></aside>
+    </div>
+    <section class="radios-panel"><div class="panel-head"><h2>Located radios <span id="shown" class="muted">0</span></h2><button id="older" disabled>Load older calls</button></div>
+      <div class="table-scroll"><table><thead><tr><th>Radio</th><th>System / protocol</th><th>Coordinates</th><th>Talkgroup</th><th>Last position</th><th>Source</th></tr></thead><tbody id="radios"></tbody></table></div>
+      <p id="list-empty" class="empty">No GPS positions received. Keep the recorder running on a system that sends GPS.</p>
+    </section>
+    <details class="help"><summary>About positions and protocol support</summary><p>Only coordinates actually decoded by the recorder are shown. The current recorder decodes Motorola P25 Phase 1 and L3Harris P25 Phase 1/2 GPS. Other protocols appear automatically when their decoders provide coordinates. An unknown protocol label does not prevent a valid fix from appearing.</p><p>Live positions use the recorder’s position log. Their times are approximate; recorded positions use the source transmission time. Trails hold up to 200 observations per radio and 1,000 radios in this tab. Closing or reloading clears this session; the recorder’s recent call history is loaded again on connection.</p><p>The map works offline without street imagery. To add a street basemap, place licensed XYZ PNG tiles at <code>tiles/{z}/{x}/{y}.png</code> in this folder, then enable Local map tiles. Missing tiles leave the coordinate grid visible. No external map service is contacted.</p></details>
+    <footer><span>Radio positions <span class="muted">/ 0.1.0</span></span><span id="diagnostics">Listen access · positions stay in this tab</span></footer>
+  </main>
+  <script type="module" src="./app.js"></script>
+</body>
+</html>
