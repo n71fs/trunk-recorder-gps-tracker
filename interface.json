@@ -1,19 +1,19 @@
 {
   "id": "gps-tracker",
   "name": "Radio positions",
-  "version": "0.1.0",
-  "description": "Track radio GPS positions, recent trails and recorded fixes on an offline coordinate map.",
+  "version": "0.2.0",
+  "description": "Track radio GPS positions and trails on OpenStreetMap street maps, with an offline coordinate grid fallback.",
   "api": 1,
   "access": "listen",
   "license": "GPL-3.0-or-later",
   "screenshots": [
     {
       "path": "screenshots/desktop.png",
-      "caption": "Fictional demo positions on the desktop coordinate map"
+      "caption": "Fictional demo positions with the offline coordinate grid selected"
     },
     {
       "path": "screenshots/phone.png",
-      "caption": "Fictional demo positions at phone width"
+      "caption": "Phone layout with fictional demo positions and the offline grid"
     }
   ],
   "repository": "https://github.com/n71fs/trunk-recorder-gps-tracker"

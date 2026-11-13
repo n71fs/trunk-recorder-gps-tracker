@@ -4,6 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="color-scheme" content="dark light">
+  <meta name="referrer" content="strict-origin-when-cross-origin">
   <title>Radio positions · Trunk Recorder Pro</title>
   <link rel="stylesheet" href="./style.css">
 </head>
@@ -29,8 +30,8 @@
     <div class="workspace">
       <section class="map-panel" aria-label="Position map">
         <div class="panel-head"><h2>Position map</h2><div class="actions"><label class="toggle"><input id="trails" type="checkbox" checked>Trails</label><button id="fit">Fit radios</button></div></div>
-        <div class="map-wrap"><canvas id="map" tabindex="0" aria-label="GPS coordinate map. Drag to pan; plus and minus to zoom; arrow keys to pan. Select radios from the list below."></canvas><div id="map-empty" class="map-empty"><div class="crosshair">⌖</div><h2>No positions yet</h2><p>GPS fixes from live logs and recorded calls will appear here.</p></div><div class="zoom"><button id="zoom-in" aria-label="Zoom in">+</button><button id="zoom-out" aria-label="Zoom out">−</button></div><span class="map-label">Offline coordinate map · north ↑</span></div>
-        <div class="map-footer"><span>Drag to pan · scroll to zoom</span><label class="toggle"><input id="tiles" type="checkbox">Local map tiles</label></div>
+        <div class="map-wrap"><canvas id="map" tabindex="0" aria-label="GPS coordinate map. Drag to pan; plus and minus to zoom; arrow keys to pan. Select radios from the list below."></canvas><div id="map-empty" class="map-empty"><div class="crosshair">⌖</div><h2>No positions yet</h2><p>GPS fixes from live logs and recorded calls will appear here.</p></div><div class="zoom"><button id="zoom-in" aria-label="Zoom in">+</button><button id="zoom-out" aria-label="Zoom out">−</button></div><span id="map-label" class="map-label" role="status">OpenStreetMap · waiting for positions</span><a id="attribution" class="map-attribution" href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">© OpenStreetMap contributors</a></div>
+        <div class="map-footer"><span>Drag to pan · scroll to zoom</span><div class="actions"><button id="retry-tiles" hidden>Retry tiles</button><label class="basemap-choice">Basemap<select id="basemap"><option value="osm">OpenStreetMap (online)</option><option value="none">Offline coordinate grid</option><option value="local">Local map tiles</option></select></label></div></div>
       </section>
       <aside class="detail-panel"><div class="panel-head"><h2>Selected radio</h2><span class="chip">GPS</span></div><div id="details" class="details"><p class="muted">Select a radio to see its coordinates and recent trail.</p></div></aside>
     </div>
@@ -38,8 +39,8 @@
       <div class="table-scroll"><table><thead><tr><th>Radio</th><th>System / protocol</th><th>Coordinates</th><th>Talkgroup</th><th>Last position</th><th>Source</th></tr></thead><tbody id="radios"></tbody></table></div>
       <p id="list-empty" class="empty">No GPS positions received. Keep the recorder running on a system that sends GPS.</p>
     </section>
-    <details class="help"><summary>About positions and protocol support</summary><p>Only coordinates actually decoded by the recorder are shown. The current recorder decodes Motorola P25 Phase 1 and L3Harris P25 Phase 1/2 GPS. Other protocols appear automatically when their decoders provide coordinates. An unknown protocol label does not prevent a valid fix from appearing.</p><p>Live positions use the recorder’s position log. Their times are approximate; recorded positions use the source transmission time. Trails hold up to 200 observations per radio and 1,000 radios in this tab. Closing or reloading clears this session; the recorder’s recent call history is loaded again on connection.</p><p>The map works offline without street imagery. To add a street basemap, place licensed XYZ PNG tiles at <code>tiles/{z}/{x}/{y}.png</code> in this folder, then enable Local map tiles. Missing tiles leave the coordinate grid visible. No external map service is contacted.</p></details>
-    <footer><span>Radio positions <span class="muted">/ 0.1.0</span></span><span id="diagnostics">Listen access · positions stay in this tab</span></footer>
+    <details class="help"><summary>About positions and protocol support</summary><p>Only coordinates actually decoded by the recorder are shown. The current recorder decodes Motorola P25 Phase 1 and L3Harris P25 Phase 1/2 GPS. Other protocols appear automatically when their decoders provide coordinates. An unknown protocol label does not prevent a valid fix from appearing.</p><p>Live positions use the recorder’s position log. Their times are approximate; recorded positions use the source transmission time. Trails hold up to 200 observations per radio and 1,000 radios in this tab. Closing or reloading clears this session; the recorder’s recent call history is loaded again on connection.</p><p>OpenStreetMap street tiles load automatically with no account or API key. Map data is © OpenStreetMap contributors, available under the ODbL. The tile service receives your IP address and the map area you view; radio IDs, names and GPS records are not sent. Choose Offline coordinate grid to stop online tile requests, or Local map tiles to use your own licensed imagery. If online tiles fail, the coordinate grid and radios remain usable. <a href="https://operations.osmfoundation.org/policies/tiles/" target="_blank" rel="noopener">Tile usage policy</a> · <a href="https://www.openstreetmap.org/fixthemap" target="_blank" rel="noopener">Report a map issue</a></p></details>
+    <footer><span>Radio positions <span class="muted">/ 0.2.0</span></span><span id="diagnostics">Listen access · positions stay in this tab</span></footer>
   </main>
   <script type="module" src="./app.js"></script>
 </body>

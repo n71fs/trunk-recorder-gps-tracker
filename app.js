@@ -1,13 +1,25 @@
 import { PositionStore, unitKey, recordedPositions, livePositions } from "./positions.js";
 import { additionalAdapters } from "./adapters.js";
 import { PositionMap } from "./map.js";
+import { BASEMAPS, readBasemapPreference, saveBasemapPreference } from "./basemaps.js";
 
 const $ = (id) => document.getElementById(id);
 const store = new PositionStore({ adapters: [recordedPositions, livePositions, ...additionalAdapters] });
 const demo = new URLSearchParams(location.search).has("demo");
 let rec, selected, visible = [], nextCursor, pending, requestId = 10000, scheduled = false;
 let error = "", fitted = false;
-const map = new PositionMap($("map"), select);
+let storage;
+try { storage = window.localStorage; } catch { /* Preferences are optional. */ }
+$("basemap").value = readBasemapPreference(storage);
+function basemapStatus({ mode, ready, failed, loading }) {
+  const source = BASEMAPS[mode];
+  $("attribution").hidden = mode !== "osm";
+  $("retry-tiles").hidden = !failed;
+  $("map-label").textContent = mode === "none" ? "Offline coordinate map · north ↑" :
+    ready ? `${source.name} · north ↑` : loading ? `${source.name} · loading tiles…` :
+      failed ? `${source.name} unavailable · coordinate grid shown` : `${source.name} · waiting for positions`;
+}
+const map = new PositionMap($("map"), select, basemapStatus);
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const label = (p) => ({ p25: "P25", p25_phase2: "P25 Phase 2", dmr: "DMR", nxdn: "NXDN", nxdn48: "NXDN48", nxdn96: "NXDN96", unknown: "Unknown", conventional: "Conventional" }[p] || p);
 const name = (p) => rec?.unitName(p.system, p.unit) || p.name || `Unit ${p.unit}`;
@@ -85,9 +97,10 @@ function draw() {
     <p class="detail-note">${esc(new Date(p.time).toLocaleString())}${p.estimatedTime ? " · approximate observation time" : ""}</p>
     <button id="center">Center on radio</button>` : '<p class="muted">Select a radio to see its coordinates and recent trail.</p>';
   if ($("center")) $("center").onclick = () => map.focus(p);
-  map.update(visible, store, selected, $("trails").checked, $("tiles").checked);
-  if (!fitted && visible.length) { map.fit(); fitted = true; }
-  $("diagnostics").textContent = store.adapterErrors ? `${store.adapterErrors} adapter errors · check adapters.js` : "Listen access · positions stay in this tab";
+  if (!fitted && visible.length) { map.fit(visible); fitted = true; }
+  map.update(visible, store, selected, $("trails").checked, $("basemap").value);
+  $("diagnostics").textContent = store.adapterErrors ? `${store.adapterErrors} adapter errors · check adapters.js` :
+    $("basemap").value === "osm" ? "Listen access · map tiles from OpenStreetMap" : "Listen access · offline map source";
 }
 $("filters").onsubmit = (e) => e.preventDefault();
 $("filters").oninput = queueDraw;
@@ -99,7 +112,8 @@ $("fit").onclick = () => map.fit();
 $("zoom-in").onclick = () => map.zoomBy(1);
 $("zoom-out").onclick = () => map.zoomBy(-1);
 $("trails").onchange = queueDraw;
-$("tiles").onchange = queueDraw;
+$("basemap").onchange = () => { saveBasemapPreference(storage, $("basemap").value); queueDraw(); };
+$("retry-tiles").onclick = () => map.retryFailedTiles();
 $("export").onclick = () => {
   const data = store.geoJSON(visible.map(unitKey));
   const url = URL.createObjectURL(new Blob([JSON.stringify(data, null, 2)], { type: "application/geo+json" }));

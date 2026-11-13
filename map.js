@@ -1,4 +1,5 @@
 import { unitKey } from "./positions.js";
+import { basemapMode, tileUrl } from "./basemaps.js";
 
 export function project(lon, lat) {
   const a = Math.max(-85.05112878, Math.min(85.05112878, lat)) * Math.PI / 180;
@@ -10,7 +11,7 @@ export function unproject(x, y) {
 const wrap = (x) => x - Math.round(x);
 
 export class PositionMap {
-  constructor(canvas, onSelect) {
+  constructor(canvas, onSelect, onBasemapStatus = () => {}) {
     this.canvas = canvas;
     this.ctx = canvas.getContext("2d");
     this.center = [.5, .5];
@@ -18,6 +19,8 @@ export class PositionMap {
     this.points = [];
     this.tiles = new Map();
     this.onSelect = onSelect;
+    this.onBasemapStatus = onBasemapStatus;
+    this.basemap = "osm";
     new ResizeObserver(() => this.draw()).observe(canvas);
     matchMedia("(prefers-color-scheme: light)").addEventListener("change", () => this.draw());
     canvas.addEventListener("wheel", (e) => { e.preventDefault(); this.zoomBy(e.deltaY > 0 ? -1 : 1); }, { passive: false });
@@ -81,8 +84,17 @@ export class PositionMap {
       Math.max(100, this.height - 120) / (256 * Math.max(maxY - minY, .00001)))))));
     this.draw();
   }
-  update(points, store, selected, trails, localTiles) {
-    Object.assign(this, { points, store, selected, trails, localTiles });
+  update(points, store, selected, trails, basemap) {
+    Object.assign(this, { points, store, selected, trails, basemap: basemapMode(basemap) });
+    this.draw();
+  }
+  scheduleDraw() {
+    if (this.drawPending) return;
+    this.drawPending = true;
+    requestAnimationFrame(() => { this.drawPending = false; this.draw(); });
+  }
+  retryFailedTiles() {
+    for (const [key, img] of this.tiles) if (img.failed) this.tiles.delete(key);
     this.draw();
   }
   draw() {
@@ -96,18 +108,20 @@ export class PositionMap {
     const style = getComputedStyle(document.documentElement);
     const color = (name) => style.getPropertyValue(name).trim();
     c.fillStyle = color("--map-bg"); c.fillRect(0, 0, this.width, this.height);
-    if (this.localTiles) this.drawTiles();
+    const tiles = this.basemap !== "none" && this.points.length ? this.drawTiles() : { ready: 0, failed: 0, loading: 0 };
+    this.onBasemapStatus({ mode: this.basemap, ...tiles });
     c.strokeStyle = color("--line"); c.lineWidth = 1;
     c.fillStyle = color("--muted"); c.font = "10px ui-monospace, monospace";
     // Grid stays geographically anchored while panning and zooming.
     const step = 2 ** Math.ceil(Math.log2(100 / this.scale));
     const left = this.center[0] - this.width / 2 / this.scale, top = this.center[1] - this.height / 2 / this.scale;
-    for (let x = Math.ceil(left / step) * step; x <= left + this.width / this.scale; x += step) {
+    // The coordinate grid fills in when imagery is absent.
+    if (!tiles.ready) for (let x = Math.ceil(left / step) * step; x <= left + this.width / this.scale; x += step) {
       const px = (x - left) * this.scale;
       c.beginPath(); c.moveTo(px, 0); c.lineTo(px, this.height); c.stroke();
       c.fillText(`${unproject(x, .5)[0].toFixed(this.zoom > 10 ? 3 : 1)}°`, px + 5, 16);
     }
-    for (let y = Math.ceil(top / step) * step; y <= top + this.height / this.scale; y += step) {
+    if (!tiles.ready) for (let y = Math.ceil(top / step) * step; y <= top + this.height / this.scale; y += step) {
       if (y < 0 || y > 1) continue;
       const py = (y - top) * this.scale;
       c.beginPath(); c.moveTo(0, py); c.lineTo(this.width, py); c.stroke();
@@ -141,19 +155,30 @@ export class PositionMap {
   }
   drawTiles() {
     const c = this.ctx, n = 2 ** this.zoom;
+    const result = { ready: 0, failed: 0, loading: 0 };
     const left = this.center[0] * n - this.width / 512, top = this.center[1] * n - this.height / 512;
     for (let x = Math.floor(left); x < left + this.width / 256; x++) for (let y = Math.floor(top); y < top + this.height / 256; y++) {
       if (y < 0 || y >= n) continue;
-      const key = `${this.zoom}/${((x % n) + n) % n}/${y}`;
+      const key = tileUrl(this.basemap, this.zoom, x, y);
+      if (!key) continue;
       if (!this.tiles.has(key)) {
         const img = new Image();
         this.tiles.set(key, img);
-        img.onload = () => { if (this.localTiles) this.draw(); };
-        img.src = `./tiles/${key}.png`;
+        // Normal browser caching honors HTTP cache headers. Never cache-bust,
+        // send no-cache headers, or offer an area download mode.
+        img.referrerPolicy = "strict-origin-when-cross-origin";
+        img.onload = () => this.scheduleDraw();
+        img.onerror = () => { img.failed = true; this.scheduleDraw(); };
+        img.src = key;
         if (this.tiles.size > 256) this.tiles.delete(this.tiles.keys().next().value);
       }
       const img = this.tiles.get(key);
-      if (img.complete && img.naturalWidth) c.drawImage(img, (x - left) * 256, (y - top) * 256, 256, 256);
+      if (img.complete && img.naturalWidth) {
+        c.drawImage(img, (x - left) * 256, (y - top) * 256, 256, 256);
+        result.ready++;
+      } else if (img.failed) result.failed++;
+      else result.loading++;
     }
+    return result;
   }
 }
