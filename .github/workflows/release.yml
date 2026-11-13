@@ -1,0 +1,56 @@
+name: Publish interface release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Test position model
+        run: node --test tests/*.test.js
+      - name: Package interface
+        shell: python
+        run: |
+          import hashlib, json, os, pathlib, subprocess, zipfile
+          root = pathlib.Path.cwd()
+          manifest = json.loads((root / 'interface.json').read_text())
+          version = manifest['version']
+          tag = f'v{version}'
+          if os.environ['GITHUB_REF_TYPE'] == 'tag':
+              assert os.environ['GITHUB_REF_NAME'] == tag, 'Tag must match interface.json version'
+          name = f"{manifest['id']}-{version}"
+          out = root / 'release-assets'
+          out.mkdir()
+          files = subprocess.check_output(['git', 'ls-files'], text=True).splitlines()
+          with zipfile.ZipFile(out / f'{name}.zip', 'w', zipfile.ZIP_DEFLATED) as archive:
+              for filename in files:
+                  archive.write(root / filename, f'{name}/{filename}')
+          for screenshot in manifest.get('screenshots', []):
+              source = root / screenshot['path']
+              (out / f'{name}-{source.name}').write_bytes(source.read_bytes())
+          assets = sorted(out.iterdir())
+          (out / 'SHA256SUMS').write_text(''.join(
+              f'{hashlib.sha256(asset.read_bytes()).hexdigest()}  {asset.name}\n'
+              for asset in assets
+          ))
+          with (pathlib.Path(os.environ['GITHUB_ENV'])).open('a') as env:
+              env.write(f'RELEASE_TAG={tag}\n')
+      - name: Upload assets and publish
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            gh release create "$RELEASE_TAG" --target "$GITHUB_SHA" --title "Radio positions $RELEASE_TAG" --generate-notes --draft
+          fi
+          gh release upload "$RELEASE_TAG" release-assets/* --clobber
+          gh release edit "$RELEASE_TAG" --draft=false --latest
