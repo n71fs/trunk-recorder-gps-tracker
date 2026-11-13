@@ -108,7 +108,7 @@ export class PositionMap {
     const style = getComputedStyle(document.documentElement);
     const color = (name) => style.getPropertyValue(name).trim();
     c.fillStyle = color("--map-bg"); c.fillRect(0, 0, this.width, this.height);
-    const tiles = this.basemap !== "none" && this.points.length ? this.drawTiles() : { ready: 0, failed: 0, loading: 0 };
+    const tiles = this.basemap !== "none" ? this.drawTiles() : { ready: 0, failed: 0, loading: 0 };
     this.onBasemapStatus({ mode: this.basemap, ...tiles });
     c.strokeStyle = color("--line"); c.lineWidth = 1;
     c.fillStyle = color("--muted"); c.font = "10px ui-monospace, monospace";

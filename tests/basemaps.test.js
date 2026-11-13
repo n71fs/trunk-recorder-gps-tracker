@@ -55,3 +55,26 @@ test("tile drawing reuses cache and isolates sources; failed tiles retry only on
     assert.ok(created.at(-1).src.startsWith("./tiles/"));
   } finally { globalThis.Image = previousImage; }
 });
+test("map rendering loads basemap tiles even before the first GPS fix", () => {
+  const names = ["devicePixelRatio", "document", "getComputedStyle"];
+  const saved = names.map((name) => [name, Object.getOwnPropertyDescriptor(globalThis, name)]);
+  let requests = 0;
+  try {
+    globalThis.devicePixelRatio = 1;
+    globalThis.document = { documentElement: {} };
+    globalThis.getComputedStyle = () => ({ getPropertyValue: () => "#000" });
+    const view = Object.assign(Object.create(PositionMap.prototype), {
+      canvas: { clientWidth: 350, clientHeight: 330 },
+      ctx: { scale() {}, fillRect() {} }, center: [.5, .5], zoom: 2,
+      points: [], basemap: "osm", onBasemapStatus() {},
+      drawTiles() { requests++; return { ready: 1, failed: 0, loading: 0 }; },
+    });
+    view.draw();
+    assert.equal(requests, 1, "An empty radio list must not suppress basemap loading");
+  } finally {
+    for (const [name, descriptor] of saved) {
+      if (descriptor) Object.defineProperty(globalThis, name, descriptor);
+      else delete globalThis[name];
+    }
+  }
+});

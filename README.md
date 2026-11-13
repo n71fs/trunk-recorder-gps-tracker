@@ -82,7 +82,7 @@ same origin. Map coordinates and records are not saved in browser storage.
 The [OSMF tile usage policy](https://operations.osmfoundation.org/policies/tiles/)
 applies. The public service is community funded, best effort, and may limit or
 block heavy use; it is not a guaranteed unlimited tile hosting service. We
-request only the visible viewport after positions arrive, use ordinary browser
+request only the visible viewport, including before any positions arrive, use ordinary browser
 HTTP caching and a valid browser referrer, and do not prefetch or offer offline
 area downloads. Failed tiles leave the grid and radios usable, with a
 **Retry tiles** button for recovery. No repeated automatic retry loop is used.

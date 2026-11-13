@@ -8,7 +8,7 @@ const assert=require('node:assert/strict');
  const page=await browser.newPage({viewport:{width:1280,height:1000}});
  const errors=[];page.on('pageerror',e=>errors.push(e.message));
  const now=Date.now();let socket, subscribed=false;
- let failTiles=false, onlineRequests=0, localRequests=0;
+ let failTiles=false, onlineRequests=0, localRequests=0, emptyGreeting=true;
  const tile='<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256"><rect width="256" height="256" fill="#d6e8dd"/></svg>';
  // Never exercise the public tile servers from automated browser tests.
  await page.route('https://tile.openstreetmap.org/**',route=>{
@@ -32,13 +32,28 @@ const assert=require('node:assert/strict');
    for(const m of [
     {type:'state',phase:'running',error:null,ended:false},
     {type:'config',version:1,config:{systems:[{shortName:'metro',type:'future-radio'}],conventional:[]}},
-    {type:'history',entries:[entry('metro',38),entry('county',39)],next:'cursor-1'},
+    {type:'history',entries:emptyGreeting?[]:[entry('metro',38),entry('county',39)],next:'cursor-1'},
     {type:'status',status:{nowS:100},sources:[],calls:[]},
     {type:'hello',version:'test',capabilities:['calls']}
    ]) ws.send(JSON.stringify(m));
  });
+ await page.setViewportSize({width:390,height:844});
  await page.goto(base);
+ await page.waitForFunction(()=>document.querySelector('#connection').textContent==='Connected');
+ await page.waitForFunction(()=>document.querySelector('#map-label').textContent==='OpenStreetMap · north ↑');
+ assert.equal(await page.locator('#count').textContent(),'0');
+ assert.ok(onlineRequests>0,'Basemap must load with no GPS positions');
+ assert.equal(await page.locator('#map-empty').isVisible(),true);
+ assert.equal(await page.locator('#fit').isDisabled(),true);
+ const emptyRequests=onlineRequests;
+ await page.locator('#zoom-in').click();
+ await page.waitForFunction(()=>document.querySelector('#map-label').textContent==='OpenStreetMap · north ↑');
+ assert.ok(onlineRequests>emptyRequests,'Empty map must remain zoomable');
+ assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false);
+ emptyGreeting=false;
+ socket.send(JSON.stringify({type:'history',entries:[entry('metro',38),entry('county',39)],next:'cursor-1'}));
  await page.waitForFunction(()=>document.querySelector('#count').textContent==='2');
+ await page.setViewportSize({width:1280,height:1000});
  assert.equal(subscribed,true);
  assert.equal(await page.locator('#basemap').inputValue(),'osm');
  await page.waitForFunction(()=>document.querySelector('#map-label').textContent==='OpenStreetMap · north ↑');
@@ -94,6 +109,6 @@ const assert=require('node:assert/strict');
  await page.setViewportSize({width:390,height:844});
  assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false);
  assert.deepEqual(errors,[]);
- console.log('PASS: real TrunkClient + simulated API greeting, log subscription, live GPS, history pagination, identity, escaping, filtering, export, default OSM tiles, offline/local switching, caching, failure/retry, attribution, preferences, dark phone layout');
+ console.log('PASS: real TrunkClient + simulated API greeting, log subscription, live GPS, history pagination, identity, escaping, filtering, export, OSM tiles before any GPS positions, empty phone map zoom, offline/local switching, caching, failure/retry, attribution, preferences, dark phone layout');
  await browser.close();
 })().catch(e=>{console.error(e);process.exitCode=1});

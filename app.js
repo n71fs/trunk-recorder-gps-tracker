@@ -17,7 +17,7 @@ function basemapStatus({ mode, ready, failed, loading }) {
   $("retry-tiles").hidden = !failed;
   $("map-label").textContent = mode === "none" ? "Offline coordinate map · north ↑" :
     ready ? `${source.name} · north ↑` : loading ? `${source.name} · loading tiles…` :
-      failed ? `${source.name} unavailable · coordinate grid shown` : `${source.name} · waiting for positions`;
+      failed ? `${source.name} unavailable · coordinate grid shown` : `${source.name} · north ↑`;
 }
 const map = new PositionMap($("map"), select, basemapStatus);
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
