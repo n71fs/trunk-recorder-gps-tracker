@@ -1,8 +1,8 @@
 {
   "id": "gps-tracker",
   "name": "Radio positions",
-  "version": "0.2.1",
-  "description": "Track radio GPS positions and trails on OpenStreetMap street maps, with an offline coordinate grid fallback.",
+  "version": "0.3.0",
+  "description": "Track radio GPS positions with saved browser history, recorded-call backfill, timeline playback, favorites, diagnostics and OpenStreetMap basemaps.",
   "api": 1,
   "access": "listen",
   "license": "GPL-3.0-or-later",

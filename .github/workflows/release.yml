@@ -11,10 +11,33 @@ permissions:
 jobs:
   release:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
-      - name: Test position model
-        run: node --test tests/*.test.js
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Test position and history models
+        run: npm test
+      - name: Install browser test tools
+        run: |
+          npm install --no-save --package-lock=false playwright@1.57.0
+          npx playwright install --with-deps chromium
+      - name: Test complete interface flows
+        env:
+          CHROMIUM_EXECUTABLE: bundled
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m http.server 8765 --bind 127.0.0.1 >/tmp/tracker-preview.log 2>&1 &
+          tracker_server=$!
+          trap 'kill "$tracker_server" || true' EXIT
+          for attempt in {1..50}; do
+            if curl -fsS http://127.0.0.1:8765/ >/dev/null 2>&1; then break; fi
+            sleep 0.1
+          done
+          node tests/browser-smoke.cjs
+          node tests/enhancements-smoke.cjs
       - name: Package interface
         shell: python
         run: |

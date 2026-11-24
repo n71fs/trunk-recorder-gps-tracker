@@ -7,9 +7,25 @@ street tiles load automatically; an offline coordinate grid remains available.
 
 ![Fictional demo positions using the offline coordinate grid](screenshots/desktop.png)
 
+## Interface features
+
+- IndexedDB history survives reloads on the same browser and device, with
+  1/7/30/90-day retention, storage usage, export and clear controls.
+- Automatic recorded-call backfill, date/time searches, progress and cancellation.
+- Timeline scrubbing and 1×/60×/600× playback using actual observations only.
+- Saved map view, selected-radio following, overlapping marker clusters,
+  favorites, local display names and consistent/custom marker colors.
+- Diagnostics for connection, GPS sources, rejected fixes, unreadable logs,
+  adapters, map loading and browser storage.
+- Map-first mobile layout with collapsible filters and radio details.
+
+Everything runs within the interface installation. There is no companion
+service, backend, plugin, database setup or recorder configuration change.
+
 ## Run
 
-In the recorder's **Interfaces → Add a folder…**, select this folder, then
+Install from GitHub with `n71fs/trunk-recorder-gps-tracker` on the recorder’s
+Interfaces page. For a local folder, use **Interfaces → Add a folder…**, then
 **Open**. Leave access at **Listen**. Alternatively, for one run:
 
 ```sh
@@ -31,13 +47,17 @@ with `python3 -m http.server 8765` from this folder, then open
   `kind` is `position`: `Unit 123 at 38.90000, -77.00000 (TG 101)`.
 - `history`, `concluded` and requested `callsResult` records with
   `record.srcList[].lat` and `.lon`. Recent history arrives on connection;
-  **Load older calls** pages through the call store when available. A page
-  without GPS can return no new radios; continue loading to search older calls.
+  automatic backfill searches the last 24 hours (or your saved From / To range)
+  when the recorder advertises call-store support. **Search recorded calls**
+  reruns that range and **Load older calls** steps beyond the greeting history.
+  Calls without coordinates do not add positions.
 - Each radio is keyed by **system short name and unit ID**. Repeated unit IDs
   in different systems stay separate. Late history cannot replace a newer fix.
 
-The current recorder decodes Motorola P25 Phase 1 and L3Harris P25 Phase 1/2
-positions (`crates/trunk-core/src/p25/gps.rs`). This interface does not decode
+The original recorder decodes Motorola P25 Phase 1 and L3Harris P25 Phase 1/2
+positions (`crates/trunk-core/src/p25/gps.rs`). The `n71fs/trunk-recorder-pro`
+`v0.3.9-gps.1` fork adds standard DMR/Hytera embedded GPS including XPT, using
+the same output fields. This interface does not decode
 radio packets or add support for protocols the recorder cannot decode yet.
 Live logs do not expose the manufacturer decoder's `Position.source`, so the
 interface labels those fixes with the configured system type. Recorded fixes
@@ -47,16 +67,67 @@ Live observation times are approximate wall times estimated from engine
 seconds and receipt time (including network delay). Recorded positions carry
 the source transmission's time, not the exact GPS-fix time. Both are marked
 approximate. Five-minute-old positions are labeled **stale**; they are last
-known locations, not a guarantee of present location. Trails may connect
-observations across a long silence. Calls may retain only the latest GPS fix
+known locations, not a guarantee of present location. Trails do not connect
+observations separated by more than five minutes. Calls may retain only the latest GPS fix
 for a transmission; archived trails cannot reconstruct fixes that were not saved.
 
-The interface keeps up to 1,000 radios and 200 observations per radio in memory.
-Reloading clears these observations, then reloads recent recorder history.
-**Export GeoJSON** downloads retained observations for radios matching the
-current filters (their full retained trails, including older points). Radio
-records stay in this tab and are not sent to the map service. Only the basemap
-selection is saved in browser storage when available.
+## Saved history, searches and playback
+
+Positions are automatically saved to **IndexedDB on this browser and origin**.
+Default retention is **7 days**, configurable to 1, 7, 30 or 90 days. At most
+100,000 observations are saved; the oldest are removed first. Cleanup runs at
+startup, periodically, and when retention changes. Storage usage is the
+approximate size of serialized position data (sampled for large histories), not
+the browser's total disk use.
+The map's in-memory view is bounded to 1,000 radios, 2,000 observations per radio,
+and 100,000 observations overall. Export all history includes saved observations
+even when they fall outside the current map's display limits.
+
+**Collection stops when the page closes**; mobile browsers may also suspend
+background tabs. Reopening restores locally saved fixes and queries retained
+call metadata for more. It cannot recover live-only fixes never received or
+saved by either browser or recorder. Saving audio is not required, but historical
+backfill depends on available call metadata. No decoder or recorder changes are
+made. Browser storage can be unavailable, full, evicted or cleared; the page
+reports a session-only fallback and continues showing incoming fixes. Export
+important history. Very recent buffered writes may not survive browser termination.
+
+The default automatic search covers **24 hours**, or a saved custom range.
+Choose **From / To** under Filters and time range, then **Search recorded calls**
+for another interval. Searches retain a fixed end time and page through at most
+50,000 calls (100 pages), with progress and cancellation. A cancelled or timed-out
+request cannot append a late reply. Narrow the range if the safety limit is
+reached. Disable **Search automatically** to prevent searches on connection.
+Coordinates older than your browser retention period are not saved for a later
+visit; choose an appropriate retention period before searching old dates.
+
+The timeline uses observations within the current filter/date range. Scrub or
+play at 1×/60×/600× to show the last actual fix at or before the chosen time.
+Positions are not interpolated. Long trail gaps are left disconnected, and stale
+markers remain labeled. **Return to live** restores the newest view. A selected
+radio with no earlier observation stays selected, without fabricating a position.
+Playback pauses when the page is hidden. Select **Follow** to keep the selected
+radio centered; manual map navigation turns it off. Cluster markers show a count;
+click one to zoom in, or use the accessible radio list to select an individual.
+
+**Export GeoJSON** exports visible radios' observations within the chosen time
+and playback range. **Export all history** exports both saved and current-session
+positions. **Clear position history…** clears browser data and the current map,
+never recorder files. New GPS or automatic backfill on reconnect can add data again.
+Favorites, display names/colors, filters, collapsed panels, map view and basemap
+selection are local browser preferences, separate from retained observations.
+
+The demo uses a **separate history database**, so fictional data never enters
+the recorder's saved position history. Radio data is not sent to the map service.
+
+## Diagnostics
+
+The diagnostics panel separates live fixes, recorded fixes and browser-restored
+fixes. It shows recorder version/phase, last messages, invalid coordinates,
+unreadable position logs, adapter errors and tile status. Calls with no GPS fields
+are normal and are not treated as rejected coordinates. The interface cannot tell
+whether absent GPS is caused by an unsupported over-air format, a radio not
+transmitting location, or reception trouble; it reports only what it receives.
 
 ## Map
 
@@ -77,7 +148,7 @@ and tile coordinates identifying the viewed map area; radio IDs, names, and
 GPS record payloads are not included in tile requests. Choosing **Offline
 coordinate grid** stops new online tile requests. The selection is remembered
 when browser storage is available, including across interface upgrades on the
-same origin. Map coordinates and records are not saved in browser storage.
+same origin. Position history is saved locally as described above.
 
 The [OSMF tile usage policy](https://operations.osmfoundation.org/policies/tiles/)
 applies. The public service is community funded, best effort, and may limit or
@@ -152,22 +223,31 @@ imports the client served by your recorder instead.
 ## Validate
 
 ```sh
-node --test tests/*.test.js
+npm test
 ```
 
 Tests cover validation, live and historical ingestion, system identity, future
 protocols, ordering, deduplication, retention, export, projection and adapter
 isolation. No Rust or WebAssembly build is needed for this standalone interface.
 
-For the browser smoke test, start the static preview server described above,
-then run `node tests/browser-smoke.cjs` with Playwright available in your test
-environment (`PLAYWRIGHT_MODULE` may point at its absolute module path).
-`GPS_PREVIEW_URL` overrides the local preview address. The test uses the real
-project client against a simulated recorder WebSocket; it needs Chromium at
-`/usr/bin/chromium`. It checks live GPS, log subscription, history pagination,
-filters, export, HTML escaping, basemap switching, caching, attribution, failed
-tile fallback, saved preferences, and phone layout. All browser-test map tiles
-are intercepted locally; automated tests do not contact the public tile service. Production uses none of these
-test dependencies. Live hardware reception was not tested in this environment.
+For browser checks, start the static preview server described above, then run:
+
+```sh
+node tests/browser-smoke.cjs
+node tests/enhancements-smoke.cjs
+```
+
+Playwright 1.57.0 must be available in your test environment (`PLAYWRIGHT_MODULE`
+may point at its absolute module path). `GPS_PREVIEW_URL` overrides the preview
+address. By default tests launch `/usr/bin/chromium`; set `CHROMIUM_EXECUTABLE`
+to another path, or `bundled` for Playwright's installed Chromium. Production has
+none of these test dependencies.
+
+Checks cover the real recorder client with a simulated WebSocket, real IndexedDB
+persistence/retention/caps/clearing, paginated backfill/cancellation, playback,
+favorites/colors/names, follow mode, clustering, diagnostics, blocked storage and
+quota failures, and phone layout. Map tiles are intercepted locally; automated
+tests never contact the public tile service. The release workflow runs both
+browser suites before publication. Live hardware reception was not tested.
 
 License: GPL-3.0-or-later, as in Trunk Recorder Pro.

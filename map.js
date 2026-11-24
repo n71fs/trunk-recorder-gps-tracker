@@ -1,5 +1,6 @@
 import { unitKey } from "./positions.js";
 import { basemapMode, tileUrl } from "./basemaps.js";
+import { clusters, GAP_MS } from "./view.js";
 
 export function project(lon, lat) {
   const a = Math.max(-85.05112878, Math.min(85.05112878, lat)) * Math.PI / 180;
@@ -27,6 +28,7 @@ export class PositionMap {
     canvas.addEventListener("keydown", (e) => {
       if (["+", "=", "-", "ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"].includes(e.key)) {
         e.preventDefault();
+        this.onInteract?.();
         if (["+", "=", "-"].includes(e.key)) this.zoomBy(e.key === "-" ? -1 : 1);
         else {
           const step = 80 / this.scale;
@@ -44,6 +46,7 @@ export class PositionMap {
       if (!this.drag) return;
       const dx = e.clientX - this.drag.x, dy = e.clientY - this.drag.y;
       this.drag.moved ||= Math.hypot(dx, dy) > 4;
+      if (this.drag.moved) this.onInteract?.();
       this.center = [this.drag.center[0] - dx / this.scale, this.drag.center[1] - dy / this.scale];
       this.draw();
     });
@@ -51,8 +54,11 @@ export class PositionMap {
       if (this.drag && !this.drag.moved) {
         const rect = canvas.getBoundingClientRect();
         const x = e.clientX - rect.left, y = e.clientY - rect.top;
-        const near = this.points.map((p) => ({ p, d: Math.hypot(...this.screen(p).map((v, i) => v - [x, y][i])) })).sort((a, b) => a.d - b.d)[0];
-        if (near?.d < 24) onSelect(unitKey(near.p));
+        const near = (this.hitTargets || []).map((g) => ({ g, d: Math.hypot(g.x - x, g.y - y) })).sort((a, b) => a.d - b.d)[0];
+        if (near?.d < 26) {
+          if (near.g.points.length === 1) onSelect(unitKey(near.g.points[0]));
+          else { this.onInteract?.(); const oldZoom = this.zoom; this.fit(near.g.points); this.zoom = Math.min(18, Math.max(this.zoom, oldZoom + 2)); this.draw(); }
+        }
       }
       this.drag = null;
     });
@@ -63,7 +69,8 @@ export class PositionMap {
     const [x, y] = project(p.lon, p.lat);
     return [this.width / 2 + wrap(x - this.center[0]) * this.scale, this.height / 2 + (y - this.center[1]) * this.scale];
   }
-  zoomBy(delta) { this.zoom = Math.min(18, Math.max(1, this.zoom + delta)); this.draw(); }
+  projectPosition(p) { return project(p.lon, p.lat); }
+  zoomBy(delta) { this.onInteract?.(); this.zoom = Math.min(18, Math.max(1, this.zoom + delta)); this.draw(); }
   focus(p) { this.center = project(p.lon, p.lat); this.zoom = Math.max(13, this.zoom); this.draw(); }
   fit(points = this.points) {
     if (!points.length) return;
@@ -84,8 +91,8 @@ export class PositionMap {
       Math.max(100, this.height - 120) / (256 * Math.max(maxY - minY, .00001)))))));
     this.draw();
   }
-  update(points, store, selected, trails, basemap) {
-    Object.assign(this, { points, store, selected, trails, basemap: basemapMode(basemap) });
+  update(points, store, selected, trails, basemap, options = {}) {
+    Object.assign(this, { points, store, selected, trails, basemap: basemapMode(basemap), options });
     this.draw();
   }
   scheduleDraw() {
@@ -102,6 +109,8 @@ export class PositionMap {
     this.height = this.canvas.clientHeight;
     if (!this.width || !this.height) return;
     this.center = [((this.center[0] % 1) + 1) % 1, Math.max(0, Math.min(1, this.center[1]))];
+    const signature = JSON.stringify([this.center, this.zoom]);
+    if (signature !== this.viewSignature) { this.viewSignature = signature; this.onViewChange?.({ center: [...this.center], zoom: this.zoom }); }
     const dpr = devicePixelRatio || 1;
     this.canvas.width = this.width * dpr; this.canvas.height = this.height * dpr;
     const c = this.ctx; c.scale(dpr, dpr);
@@ -129,30 +138,41 @@ export class PositionMap {
     }
     if (this.trails) for (const p of this.points) {
       const trail = this.store?.trail(unitKey(p)) ?? [];
-      c.strokeStyle = color(unitKey(p) === this.selected ? "--accent" : "--trail"); c.lineWidth = 2;
+      c.strokeStyle = this.options?.color?.(p) || color("--trail"); c.lineWidth = unitKey(p) === this.selected ? 3 : 1.5;
       c.beginPath();
       let previous;
       for (const t of trail) {
         const [x, y] = this.screen(t);
-        if (!previous || Math.abs(x - previous[0]) > this.scale / 2) c.moveTo(x, y); else c.lineTo(x, y);
-        previous = [x, y];
+        if (!previous || t.time - previous[2] > GAP_MS || Math.abs(x - previous[0]) > this.scale / 2) c.moveTo(x, y); else c.lineTo(x, y);
+        previous = [x, y, t.time];
       }
       c.stroke();
     }
-    for (const p of [...this.points].sort((a, b) => Number(unitKey(a) === this.selected) - Number(unitKey(b) === this.selected))) {
-      const [x, y] = this.screen(p);
-      if (x < -50 || y < -30 || x > this.width + 50 || y > this.height + 30) continue;
-      const selected = unitKey(p) === this.selected;
-      c.fillStyle = color(selected ? "--accent" : "--text");
-      c.strokeStyle = color("--map-bg"); c.lineWidth = 3;
-      c.beginPath(); c.arc(x, y, selected ? 8 : 5, 0, Math.PI * 2); c.fill(); c.stroke();
-      c.font = `${selected ? 600 : 400} 12px system-ui`;
+    const inView = this.points.filter((p) => { const [x, y] = this.screen(p); return x > -50 && y > -30 && x < this.width + 50 && y < this.height + 30; });
+    const selected = inView.find((p) => unitKey(p) === this.selected);
+    const others = inView.filter((p) => p !== selected);
+    const groups = this.options?.cluster && this.zoom < 16 ? clusters(others, (p) => this.screen(p)) : others.map((p) => { const [x, y] = this.screen(p); return { x, y, points: [p] }; });
+    if (selected) { const [x, y] = this.screen(selected); groups.push({ x, y, points: [selected] }); }
+    this.hitTargets = groups;
+    for (const group of groups) {
+      const { x, y, points } = group, p = points[0], isSelected = unitKey(p) === this.selected;
+      const markerColor = this.options?.color?.(p) || color("--accent");
+      c.fillStyle = points.length > 1 ? color("--panel") : markerColor;
+      c.strokeStyle = points.length > 1 ? color("--accent") : color("--panel"); c.lineWidth = isSelected ? 4 : 2;
+      c.beginPath(); c.arc(x, y, points.length > 1 ? 18 : isSelected ? 9 : 6, 0, Math.PI * 2); c.fill(); c.stroke();
+      if (points.length > 1) {
+        c.fillStyle = color("--text"); c.font = '600 12px system-ui';
+        const count = String(points.length); c.fillText(count, x - c.measureText(count).width / 2, y + 4);
+        continue;
+      }
+      c.font = `${isSelected ? 600 : 400} 12px system-ui`;
       const duplicate = this.points.some((other) => other.unit === p.unit && other.system !== p.system);
       const label = duplicate ? `${p.system} · ${p.unit}` : `${p.unit}`, w = c.measureText(label).width;
-      c.fillStyle = color("--panel"); c.fillRect(x + 11, y - 12, w + 12, 23);
-      c.fillStyle = color(selected ? "--accent" : "--text"); c.fillText(label, x + 17, y + 4);
+      c.fillStyle = color("--panel"); c.fillRect(x + 12, y - 12, w + 12, 23);
+      c.fillStyle = color("--text"); c.fillText(label, x + 18, y + 4);
     }
   }
+
   drawTiles() {
     const c = this.ctx, n = 2 ** this.zoom;
     const result = { ready: 0, failed: 0, loading: 0 };

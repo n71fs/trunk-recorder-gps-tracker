@@ -4,9 +4,11 @@ const path=require('node:path');
 const base=process.env.GPS_PREVIEW_URL || 'http://127.0.0.1:8765';
 const assert=require('node:assert/strict');
 (async()=>{
- const browser=await chromium.launch({executablePath:'/usr/bin/chromium',headless:true,args:['--no-sandbox']});
+ const browser=await chromium.launch({executablePath:process.env.CHROMIUM_EXECUTABLE==='bundled'?undefined:(process.env.CHROMIUM_EXECUTABLE||'/usr/bin/chromium'),headless:true,args:['--no-sandbox']});
+ try {
  const page=await browser.newPage({viewport:{width:1280,height:1000}});
  const errors=[];page.on('pageerror',e=>errors.push(e.message));
+ await page.addInitScript(()=>localStorage.setItem('radio-positions-settings',JSON.stringify({autoBackfill:false,panels:{'filter-panel':true,'radio-panel':true,'history-panel':true}})));
  const now=Date.now();let socket, subscribed=false;
  let failTiles=false, onlineRequests=0, localRequests=0, emptyGreeting=true;
  const tile='<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256"><rect width="256" height="256" fill="#d6e8dd"/></svg>';
@@ -110,5 +112,5 @@ const assert=require('node:assert/strict');
  assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false);
  assert.deepEqual(errors,[]);
  console.log('PASS: real TrunkClient + simulated API greeting, log subscription, live GPS, history pagination, identity, escaping, filtering, export, OSM tiles before any GPS positions, empty phone map zoom, offline/local switching, caching, failure/retry, attribution, preferences, dark phone layout');
- await browser.close();
+ } finally { await browser.close(); }
 })().catch(e=>{console.error(e);process.exitCode=1});

@@ -10,7 +10,7 @@ export function normalize(p) {
   return { system: p.system, unit: p.unit, lat: p.lat, lon: p.lon, time: p.time,
     protocol: typeof p.protocol === "string" && p.protocol ? p.protocol : "unknown",
     name: typeof p.name === "string" ? p.name : "", talkgroup: p.talkgroup ?? null,
-    origin: p.origin || "adapter", estimatedTime: !!p.estimatedTime };
+    origin: p.origin || "adapter", estimatedTime: !!p.estimatedTime, cached: !!p.cached };
 }
 
 export function protocolFor(system, rec) {
@@ -23,7 +23,7 @@ export const recordedPositions = {
   read(message) {
     const entries = message.type === "concluded" ? [message.entry] :
       ["history", "callsResult"].includes(message.type) ? message.entries ?? [] : [];
-    return entries.flatMap(({ record: r }) => (r?.srcList ?? []).map((s) => ({
+    return entries.flatMap(({ record: r }) => (r?.srcList ?? []).filter((s) => s.lat != null || s.lon != null).map((s) => ({
       system: r.short_name, unit: s.src, lat: s.lat, lon: s.lon,
       // A record retains the source's transmission time, not a GPS timestamp.
       time: s.time * 1000, protocol: r.voice_mode || r.system_type || "unknown",
@@ -52,10 +52,13 @@ export const livePositions = {
 };
 
 export class PositionStore {
-  constructor({ maxUnits = 1000, maxPoints = 200, adapters = [recordedPositions, livePositions] } = {}) {
+  constructor({ maxUnits = 1000, maxPoints = 200, maxTotal = 100000, onAdd = () => {}, adapters = [recordedPositions, livePositions] } = {}) {
     this.units = new Map();
     this.maxUnits = maxUnits;
     this.maxPoints = maxPoints;
+    this.maxTotal = maxTotal;
+    this.onAdd = onAdd;
+    this.total = 0;
     this.adapters = [...adapters];
     this.rejected = 0;
     this.adapterErrors = 0;
@@ -76,15 +79,31 @@ export class PositionStore {
     const points = this.units.get(key) ?? [];
     // Multi-site copies and greeting history may repeat the same observation.
     if (points.some((v) => v.time === p.time && v.lat === p.lat && v.lon === p.lon)) return false;
-    points.push(p);
-    points.sort((a, b) => a.time - b.time);
-    if (points.length > this.maxPoints) points.splice(0, points.length - this.maxPoints);
+    let low = 0, high = points.length;
+    while (low < high) { const mid = (low + high) >>> 1; if (points[mid].time <= p.time) low = mid + 1; else high = mid; }
+    points.splice(low, 0, p); this.total++;
+    if (points.length > this.maxPoints) { this.total -= points.length - this.maxPoints; points.splice(0, points.length - this.maxPoints); }
     this.units.set(key, points);
     if (this.units.size > this.maxUnits) {
       const oldest = [...this.units].reduce((a, b) => a[1].at(-1).time <= b[1].at(-1).time ? a : b);
       this.units.delete(oldest[0]);
+      this.total -= oldest[1].length;
     }
+    while (this.total > this.maxTotal) {
+      const oldest = [...this.units].reduce((a, b) => a[1][0].time <= b[1][0].time ? a : b);
+      oldest[1].shift(); this.total--;
+      if (!oldest[1].length) this.units.delete(oldest[0]);
+    }
+    this.onAdd(p);
     return true;
+  }
+  clear() { this.units.clear(); this.total = 0; }
+  prune(cutoff) {
+    for (const [key, points] of this.units) {
+      const kept = points.filter((p) => p.time >= cutoff);
+      this.total -= points.length - kept.length;
+      if (kept.length) this.units.set(key, kept); else this.units.delete(key);
+    }
   }
   latest() { return [...this.units.values()].map((points) => points.at(-1)).sort((a, b) => b.time - a.time); }
   trail(key) { return this.units.get(key) ?? []; }
