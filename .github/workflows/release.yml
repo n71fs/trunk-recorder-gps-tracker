@@ -60,7 +60,7 @@ jobs:
         include:
           - { target: x86_64-unknown-linux-gnu, os: ubuntu-24.04, goos: linux, goarch: amd64 }
           - { target: aarch64-unknown-linux-gnu, os: ubuntu-24.04, goos: linux, goarch: arm64 }
-          - { target: universal-apple-darwin, os: macos-14, goos: darwin, goarch: arm64 }
+          - { target: universal-apple-darwin, os: macos-latest, goos: darwin, goarch: arm64 }
           - { target: x86_64-pc-windows-msvc, os: windows-latest, goos: windows, goarch: amd64 }
     runs-on: ${{ matrix.os }}
     timeout-minutes: 20
