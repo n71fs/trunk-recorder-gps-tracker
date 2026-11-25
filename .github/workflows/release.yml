@@ -93,7 +93,7 @@ jobs:
           sudo apt-get update -qq
           sudo apt-get install -y llvm-18
           llvm-lipo-18 -create -output bin/gps-history bin/gps-history-arm64 bin/gps-history-amd64
-          llvm-lipo-18 -verify_arch arm64 x86_64 bin/gps-history
+          llvm-lipo-18 bin/gps-history -verify_arch arm64 x86_64
       - name: Verify manifest and package
         shell: bash
         run: |
