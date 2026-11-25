@@ -123,6 +123,12 @@ func startApplication(parent context.Context, c Config, dataDir string, out *pro
 		a.state.mu.RLock()
 		bind := a.state.bind
 		a.state.mu.RUnlock()
+		// An explicitly chosen dashboard IP must also be reachable at the listener.
+		// Changing only the advertised URL can otherwise publish a remote link
+		// while the server still listens exclusively on recorder loopback.
+		if c.AdvertiseHost != "auto" {
+			bind = c.AdvertiseHost
+		}
 		address = net.JoinHostPort(bind, "8095")
 	}
 	listener, err := net.Listen("tcp", address)

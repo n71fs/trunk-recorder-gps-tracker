@@ -1,6 +1,6 @@
 # GPS history plugin for Trunk Recorder Pro
 
-**v0.4.0 is a plugin release. Install it from the Plugins page, not Interfaces.**
+**v0.4.1 is a plugin release. Install it from the Plugins page, not Interfaces.**
 The previous browser-only interface remains available at
 [v0.3.0](https://github.com/n71fs/trunk-recorder-gps-tracker/releases/tag/v0.3.0).
 
@@ -40,7 +40,7 @@ Most installations work with the defaults:
 | Setting | Default | Purpose |
 |---|---|---|
 | Recorder URL | `http://127.0.0.1:8080` | Change this if TR Pro's own web/API port differs |
-| Dashboard bind address | `auto` | Follows the recorder's configured bind address, using port 8095 or a free port if occupied |
+| Dashboard bind address | `auto` | Listens on an explicit Dashboard address when set; otherwise follows recorder bind; uses port 8095 or a free port |
 | Dashboard address | `auto` | Uses loopback for a local recorder; for a network-facing recorder, prefers a Tailscale address, then a LAN address |
 | Keep GPS history | 30 days | Old positions are removed automatically; configurable 1–365 days |
 | Maximum saved positions | 1,000,000 | Oldest positions are removed first; configurable 1,000–10,000,000 |
@@ -60,6 +60,26 @@ access on a trusted network/VPN such as Tailscale; this plugin does not add TLS.
 The plugin-data folder holds `positions.sqlite` and a persistent `dashboard-token`
 file. Back up the database with SQLite-aware tools or while the plugin is stopped.
 Do not delete that folder during an upgrade if you want to retain history.
+
+## Dashboard connection troubleshooting
+
+If the plugin is Running but a phone cannot connect, make sure **Dashboard address**
+is the recorder machine's reachable IP (for example its Tailscale IP), not the
+phone's IP. Starting with v0.4.1, **Dashboard bind address = auto** also listens on
+that explicitly selected IP. Reopen the generated link after settings apply.
+
+On v0.4.0, set **Dashboard bind address** explicitly to `RECORDER_IP:8095` as
+well as **Dashboard address** to `RECORDER_IP`. The older version could generate
+a remote link while listening only on localhost. A manual bind value always
+overrides automatic binding.
+
+If the link still cannot connect, check that TCP access to the displayed dashboard
+port is allowed by the recorder machine's firewall and any Tailscale access rules.
+Being able to open TR Pro on its own port does not establish access to port 8095.
+For containers, the dashboard IP must exist inside the container and the dashboard
+port must be published; use an explicit bind such as `0.0.0.0:8095` with the host's
+reachable IP as Dashboard address. Keep the complete generated link, including its
+`#token=…` fragment, when opening it in Safari.
 
 ## What is collected
 

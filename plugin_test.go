@@ -129,7 +129,7 @@ func TestCollectsWithNoBrowserAndReopensHistory(t *testing.T) {
 		}
 		defer c.CloseNow()
 		c.SetReadLimit(1 << 20)
-		for _, m := range []string{`{"type":"config","config":{"systems":[{"shortName":"city","type":"dmr"}],"server":{"bind":"127.0.0.1"}}}`, `{"type":"state","phase":"running"}`, `{"type":"hello","version":"v0.3.9-gps.1"}`} {
+		for _, m := range []string{`{"type":"config","config":{"systems":[{"shortName":"city","type":"dmr"}],"server":{"bind":"192.0.2.1"}}}`, `{"type":"state","phase":"running"}`, `{"type":"hello","version":"v0.3.9-gps.1"}`} {
 			if c.Write(ctx, websocket.MessageText, []byte(m)) != nil {
 				return
 			}
@@ -149,7 +149,7 @@ func TestCollectsWithNoBrowserAndReopensHistory(t *testing.T) {
 		}
 	}))
 	defer recorder.Close()
-	raw, _ := json.Marshal(map[string]any{"recorder_url": recorder.URL, "listen": "127.0.0.1:0"})
+	raw, _ := json.Marshal(map[string]any{"recorder_url": recorder.URL, "listen": "auto", "advertise_host": "127.0.0.1"})
 	c := configFor(t, string(raw))
 	data := t.TempDir()
 	out := &protocolOutput{encoder: json.NewEncoder(io.Discard)}

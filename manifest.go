@@ -9,7 +9,7 @@ import (
 )
 
 const pluginID = "gps-history"
-const version = "0.4.0"
+const version = "0.4.1"
 
 type Config struct {
 	BackfillHours int    `json:"backfill_hours"`
@@ -62,8 +62,8 @@ func manifest() map[string]any {
 		"page": map[string]string{"title": "GPS history"}, "live_settings": true,
 		"config": map[string]any{"type": "object", "properties": map[string]any{
 			"recorder_url":   prop("string", "Recorder URL", "http://127.0.0.1:8080"),
-			"listen":         map[string]any{"type": "string", "title": "Dashboard bind address", "default": "auto", "description": "auto follows the recorder's bind address on port 8095, choosing a free port if needed"},
-			"advertise_host": map[string]any{"type": "string", "title": "Dashboard address", "default": "auto", "description": "auto prefers a Tailscale address for a network-facing recorder"},
+			"listen":         map[string]any{"type": "string", "title": "Dashboard bind address", "default": "auto", "description": "auto listens on Dashboard address when set; otherwise follows recorder bind; port 8095 or a free port"},
+			"advertise_host": map[string]any{"type": "string", "title": "Dashboard address", "default": "auto", "description": "IP for dashboard links; with auto bind, also selects the listening IP. auto prefers Tailscale for a network-facing recorder"},
 			"backfill_hours": map[string]any{"type": "integer", "title": "Backfill recorded GPS, hours", "default": 24, "minimum": 0, "maximum": 720, "description": "Read available call metadata on connection; 0 disables this, and searches stop after 50,000 calls"},
 			"retention_days": map[string]any{"type": "integer", "title": "Keep GPS history, days", "default": 30, "minimum": 1, "maximum": 365},
 			"max_positions":  map[string]any{"type": "integer", "title": "Maximum saved positions", "default": 1000000, "minimum": 1000, "maximum": 10000000},
