@@ -60,7 +60,7 @@ jobs:
         include:
           - { target: x86_64-unknown-linux-gnu, os: ubuntu-24.04, goos: linux, goarch: amd64 }
           - { target: aarch64-unknown-linux-gnu, os: ubuntu-24.04, goos: linux, goarch: arm64 }
-          - { target: universal-apple-darwin, os: macos-latest, goos: darwin, goarch: arm64 }
+          - { target: universal-apple-darwin, os: ubuntu-24.04, goos: darwin, goarch: arm64 }
           - { target: x86_64-pc-windows-msvc, os: windows-latest, goos: windows, goarch: amd64 }
     runs-on: ${{ matrix.os }}
     timeout-minutes: 20
@@ -90,14 +90,17 @@ jobs:
           mkdir -p bin
           GOOS=darwin GOARCH=arm64 go build -trimpath -ldflags='-s -w' -o bin/gps-history-arm64 .
           GOOS=darwin GOARCH=amd64 go build -trimpath -ldflags='-s -w' -o bin/gps-history-amd64 .
-          lipo -create -output bin/gps-history bin/gps-history-arm64 bin/gps-history-amd64
+          sudo apt-get update -qq
+          sudo apt-get install -y llvm-18
+          llvm-lipo-18 -create -output bin/gps-history bin/gps-history-arm64 bin/gps-history-amd64
+          llvm-lipo-18 -verify_arch arm64 x86_64 bin/gps-history
       - name: Verify manifest and package
         shell: bash
         run: |
           go run . --describe > plugin.manifest.json
           suffix=''
           if [ '${{ matrix.goos }}' = windows ]; then suffix='.exe'; fi
-          if [ '${{ matrix.target }}' != aarch64-unknown-linux-gnu ]; then
+          if [ '${{ matrix.target }}' != aarch64-unknown-linux-gnu ] && [ '${{ matrix.goos }}' != darwin ]; then
             "./bin/gps-history$suffix" --describe > built.manifest.json
             python3 -c 'import json; assert json.load(open("built.manifest.json"))==json.load(open("plugin.manifest.json"))'
           fi

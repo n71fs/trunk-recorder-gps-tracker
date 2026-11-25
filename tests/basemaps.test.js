@@ -78,3 +78,33 @@ test("map rendering loads basemap tiles even before the first GPS fix", () => {
     }
   }
 });
+test("map labels prefer aliases, fall back to IDs for blank names, and distinguish systems", () => {
+  const names = ["devicePixelRatio", "document", "getComputedStyle"];
+  const saved = names.map((name) => [name, Object.getOwnPropertyDescriptor(globalThis, name)]);
+  try {
+    globalThis.devicePixelRatio = 1;
+    globalThis.document = { documentElement: {} };
+    globalThis.getComputedStyle = () => ({ getPropertyValue: () => "#000" });
+    const labels = [];
+    const view = Object.assign(Object.create(PositionMap.prototype), {
+      canvas: { clientWidth: 350, clientHeight: 330 },
+      ctx: { scale() {}, fillRect() {}, beginPath() {}, arc() {}, fill() {}, stroke() {},
+        measureText: (text) => ({ width: text.length * 7 }), fillText(text) { labels.push(text); } },
+      center: [.5, .5], zoom: 16, basemap: "osm", onBasemapStatus() {},
+      screen: () => [100, 100], drawTiles: () => ({ ready: 1, failed: 0, loading: 0 }),
+      points: [{ system: 'city', unit: 42, name: ' Engine 7 ' }, { system: 'city', unit: 43, name: '  ' },
+        { system: 'city', unit: 44 }, { system: 'county', unit: 44, name: 'Rescue' }],
+    });
+    view.draw();
+    assert.deepEqual(labels, ['Engine 7', '43', '44 · city', 'Rescue · county']);
+    labels.length = 0;
+    view.options = { label: (p) => p.unit === 42 ? 'Custom engine' : '' };
+    view.draw();
+    assert.equal(labels[0], 'Custom engine');
+  } finally {
+    for (const [name, descriptor] of saved) {
+      if (descriptor) Object.defineProperty(globalThis, name, descriptor);
+      else delete globalThis[name];
+    }
+  }
+});

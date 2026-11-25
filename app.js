@@ -22,7 +22,9 @@ const writeBuffer = new Map();
 const metrics = { restored: 0, live: 0, recorded: 0, lastLiveAt: null, lastMessageAt: null, positionLogs: 0, unreadableLogs: 0 };
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const label = (p) => ({ p25: 'P25', p25_phase2: 'P25 Phase 2', dmr: 'DMR', nxdn: 'NXDN', nxdn48: 'NXDN48', nxdn96: 'NXDN96', unknown: 'Unknown', conventional: 'Conventional' }[p] || p);
-const name = (p) => radioPrefs[unitKey(p)]?.name || rec?.unitName(p.system, p.unit) || p.name || `Unit ${p.unit}`;
+const alias = (p) => [radioPrefs[unitKey(p)]?.name, rec?.unitName(p.system, p.unit), p.name]
+  .find((value) => typeof value === 'string' && value.trim())?.trim() || '';
+const name = (p) => alias(p) || `Unit ${p.unit}`;
 const retentionDays = () => Number($('retention').value) || 7;
 const cutoff = () => Date.now() - retentionDays() * DAY;
 const store = new PositionStore({ maxPoints: 2000, maxTotal: 100000, adapters: [recordedPositions, livePositions, ...additionalAdapters], onAdd(p) {
@@ -163,7 +165,7 @@ function draw() {
   $('playback-time').textContent = playhead == null ? 'Live · latest observations' : `Replay · ${new Date(playhead).toLocaleString()}`;
   if (!fitted && visible.length) { map.fit(visible); fitted = true; }
   if ($('follow').checked && p) map.center = map.projectPosition(p);
-  map.update(visible, { trail: (key) => viewTrails.get(key) || [] }, selected, $('trails').checked, $('basemap').value, { cluster: $('cluster').checked, color: (p) => radioColor(p, radioPrefs) });
+  map.update(visible, { trail: (key) => viewTrails.get(key) || [] }, selected, $('trails').checked, $('basemap').value, { cluster: $('cluster').checked, color: (p) => radioColor(p, radioPrefs), label: alias });
   $('storage-status').textContent = !storageReady ? 'Opening saved positions…' : storageFailure ? `Session only: ${storageFailure}` : `${storageStats.count.toLocaleString()} saved positions · about ${(storageStats.bytes / 1024).toFixed(1)} KiB of position data · ${retentionDays()} day retention`;
   $('export-all').textContent = serverHistory ? 'Export browser history' : 'Export all history';
   $('clear-history').textContent = serverHistory ? 'Clear browser cache…' : 'Clear position history…';

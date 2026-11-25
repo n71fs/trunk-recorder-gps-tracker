@@ -1,6 +1,6 @@
 # GPS history plugin for Trunk Recorder Pro
 
-**v0.4.1 is a plugin release. Install it from the Plugins page, not Interfaces.**
+**v0.4.2 is a plugin release. Install it from the Plugins page, not Interfaces.**
 The previous browser-only interface remains available at
 [v0.3.0](https://github.com/n71fs/trunk-recorder-gps-tracker/releases/tag/v0.3.0).
 
@@ -107,6 +107,10 @@ rather than a GPS timestamp. No manufacturer accuracy or exact GPS timestamp is
 invented.
 
 ## Dashboard and browser cache
+
+Map markers use the radio alias as their primary label, falling back to the radio
+ID when no alias is available. Custom friendly names override recorder aliases,
+and duplicate radio IDs across systems include the system name.
 
 The bundled dashboard keeps the map, trails, favorites, colors, playback, GPS
 backfill/search, diagnostics, and mobile layout. **Search saved positions** queries

@@ -9,7 +9,7 @@ import (
 )
 
 const pluginID = "gps-history"
-const version = "0.4.1"
+const version = "0.4.2"
 
 type Config struct {
 	BackfillHours int    `json:"backfill_hours"`

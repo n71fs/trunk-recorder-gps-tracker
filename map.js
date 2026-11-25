@@ -167,7 +167,8 @@ export class PositionMap {
       }
       c.font = `${isSelected ? 600 : 400} 12px system-ui`;
       const duplicate = this.points.some((other) => other.unit === p.unit && other.system !== p.system);
-      const label = duplicate ? `${p.system} · ${p.unit}` : `${p.unit}`, w = c.measureText(label).width;
+      const primary = this.options?.label?.(p)?.trim() || p.name?.trim() || String(p.unit);
+      const label = duplicate ? `${primary} · ${p.system}` : primary, w = c.measureText(label).width;
       c.fillStyle = color("--panel"); c.fillRect(x + 12, y - 12, w + 12, 23);
       c.fillStyle = color("--text"); c.fillText(label, x + 18, y + 4);
     }
