@@ -1,4 +1,132 @@
-# Radio positions
+# GPS history plugin for Trunk Recorder Pro
+
+**v0.4.0 is a plugin release. Install it from the Plugins page, not Interfaces.**
+The previous browser-only interface remains available at
+[v0.3.0](https://github.com/n71fs/trunk-recorder-gps-tracker/releases/tag/v0.3.0).
+
+The plugin saves decoded GPS positions in SQLite **on the recorder machine** and
+includes the tracking dashboard. It collects while TR Pro is **Started**, even
+with every browser closed. It does not require saving call audio, changing
+TR Pro's code, installing Go/SQLite/Node, or running a separate service.
+
+## Install and open
+
+1. In TR Pro, open **Plugins → Install from GitHub…** and enter
+   `n71fs/trunk-recorder-gps-tracker`.
+2. Enable **GPS history**, then click **Start** in TR Pro if it is not running.
+3. Open the plugin's **GPS history** settings/page and click **Open GPS dashboard**.
+   The plugin fills in this private dashboard link automatically after starting.
+
+Or install with:
+
+```sh
+trunk-pro plugin install n71fs/trunk-recorder-gps-tracker
+```
+
+Packages are provided for Linux x86-64, Linux ARM64/Raspberry Pi, universal macOS
+(Intel and Apple silicon), and Windows x86-64. They contain a native executable
+with the complete dashboard embedded. Release files follow TR Pro's plugin
+installer naming, manifest and SHA256SUMS conventions.
+
+**Stop in TR Pro stops the plugin**, including its dashboard server. SQLite
+history remains on disk and is available again after the next Start. An already
+open dashboard can still show its browser cache, but it cannot query the server
+while the plugin is stopped. Audio archiving can stay off throughout.
+
+## Defaults and settings
+
+Most installations work with the defaults:
+
+| Setting | Default | Purpose |
+|---|---|---|
+| Recorder URL | `http://127.0.0.1:8080` | Change this if TR Pro's own web/API port differs |
+| Dashboard bind address | `auto` | Follows the recorder's configured bind address, using port 8095 or a free port if occupied |
+| Dashboard address | `auto` | Uses loopback for a local recorder; for a network-facing recorder, prefers a Tailscale address, then a LAN address |
+| Keep GPS history | 30 days | Old positions are removed automatically; configurable 1–365 days |
+| Maximum saved positions | 1,000,000 | Oldest positions are removed first; configurable 1,000–10,000,000 |
+| Backfill recorded GPS | 24 hours | Reads available call metadata when connecting; 0 disables backfill, and searches are capped at 50,000 calls |
+| GPS dashboard | Filled automatically | Private read-only dashboard link |
+
+Settings changes restart only this plugin's internal collector/dashboard and
+keep its database. A brief collection gap may occur during reconfiguration.
+For remote viewing, the recorder must already be configured for network access;
+the dashboard uses a separate port, which must be reachable through the firewall.
+Set the bind/address fields if auto-detection does not match your network.
+
+The URL carries an unguessable access token in its **fragment** (`#token=…`). It
+is not sent to OpenStreetMap or in HTTP referrers. Treat the dashboard link as a
+private GPS read-access link and share it only with intended viewers. Keep remote
+access on a trusted network/VPN such as Tailscale; this plugin does not add TLS.
+The plugin-data folder holds `positions.sqlite` and a persistent `dashboard-token`
+file. Back up the database with SQLite-aware tools or while the plugin is stopped.
+Do not delete that folder during an upgrade if you want to retain history.
+
+## What is collected
+
+The plugin opens TR Pro's existing WebSocket API and subscribes to decoded
+position logs. It also reads available source coordinates from recent/queried
+call metadata. Its only recorder commands are **subscribe** and **callsQuery**;
+it requests no audio and cannot Start, Stop, or change recorder configuration.
+Its regular host-protocol topic list is empty, so it never holds up call file
+cleanup and does not require `call.result` acknowledgements.
+
+It works with the GPS output of your `n71fs/trunk-recorder-pro`
+`v0.3.9-gps.1` build: Motorola/L3Harris P25 and supported standard DMR/Hytera
+embedded GPS including XPT. It does not add HDAP/LP, LRRP or UDT/NMEA decoding.
+A plugin cannot save positions the recorder has not decoded. Disconnects,
+shutdowns and unsupported formats can leave gaps. Backfill recovers only
+coordinates available in retained call metadata, not missing live-only fixes.
+
+SQLite commits use WAL and full synchronization; incoming observations are batched
+for up to 250 ms or 100 fixes, and pending writes are drained on normal shutdown.
+Only committed records are broadcast to dashboards. Forced termination/power loss
+can lose uncommitted buffered fixes. Positions are deduplicated by system, unit,
+observation time and coordinates, with stable pagination and separate radio IDs
+per system. Live times are approximate when the recorder provides engine seconds
+rather than a GPS timestamp. No manufacturer accuracy or exact GPS timestamp is
+invented.
+
+## Dashboard and browser cache
+
+The bundled dashboard keeps the map, trails, favorites, colors, playback, GPS
+backfill/search, diagnostics, and mobile layout. **Search saved positions** queries
+the plugin's machine-wide database. A recorder-machine history panel shows its
+count, size and retention. Browser cache controls affect only that browser;
+**Clear browser cache** does not delete the plugin's SQLite history. Browser cache
+retention and plugin retention are separate settings.
+
+The browser display/search limits are described below. A new browser/device can
+query server history without needing an old browser's IndexedDB cache. Open the
+plugin's private link, not the old standalone interface URL, to use server history.
+
+## Development and validation
+
+Go 1.24+ is needed only to build from source (releases use Go 1.27.4):
+
+```sh
+go test -race ./...
+go build -o bin/gps-history .
+go build -o bin/mock-recorder ./cmd/mock-recorder
+bin/gps-history --describe
+npm test
+```
+
+`tests/plugin-browser.cjs` tests the real plugin executable against a local mock
+recorder: browser-closed collection, authenticated dashboard, fresh-browser
+history/playback, no audio files, and shutdown/restart durability. The existing
+browser suites also remain. Set `PLAYWRIGHT_MODULE`/`CHROMIUM_EXECUTABLE` as
+explained in the interface guide below. Automated map requests are mocked.
+Live radio hardware reception has not been tested in this environment.
+
+Third-party runtime/dependency licenses are included in `THIRD_PARTY_NOTICES.txt`.
+The plugin's read-only API is documented in [PLUGIN-API.md](PLUGIN-API.md).
+
+---
+
+# Browser interface guide
+
+The following also describes the legacy static interface. Its browser-only
+collection limitations do not apply to the running plugin's SQLite collector.
 
 A self-contained GPS tracking interface for Trunk Recorder Pro, made against
 the repository's API 1 on `main` (November 2026). Plain HTML, CSS and JavaScript;

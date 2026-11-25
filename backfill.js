@@ -37,7 +37,7 @@ export class CallSearch {
         if (!m || generation !== this.generation) return;
         if (m.error) throw new Error(m.error);
         this.onPage(m, kind);
-        this.update({ pages: this.state.pages + 1, calls: this.state.calls + (m.entries?.length ?? 0) });
+        this.update({ pages: this.state.pages + 1, calls: this.state.calls + (m.positions?.length ?? m.entries?.length ?? 0) });
         cursor = m.next;
         if (cursor && seen.has(cursor)) throw new Error('Recorder repeated a history cursor. Narrow the date range and retry.');
         if (cursor) seen.add(cursor);

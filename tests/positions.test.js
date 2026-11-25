@@ -71,3 +71,13 @@ test("map fits radios across the date line without zooming out to the whole glob
   assert.ok(view.center[0] < .001 || view.center[0] > .999);
   assert.ok(view.zoom >= 12);
 });
+
+test("plugin server history preserves original provenance and marks restored fixes", () => {
+  const s = new PositionStore();
+  s.ingest({ type: "history", entries: [], positions: [{ system: "city", unit: 42, lat: 38.9, lon: -77, time: 1700000000000, protocol: "dmr", origin: "live", estimatedTime: true }] });
+  assert.equal(s.latest()[0].cached, true);
+  assert.equal(s.latest()[0].origin, "live");
+  s.ingest({ type: "gpsFix", positions: [{ system: "city", unit: 42, lat: 38.91, lon: -77, time: 1700000001000, protocol: "dmr", origin: "live", estimatedTime: false }] });
+  assert.equal(s.latest()[0].cached, false);
+  assert.equal(s.latest()[0].estimatedTime, false);
+});

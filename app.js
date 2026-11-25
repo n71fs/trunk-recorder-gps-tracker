@@ -27,7 +27,8 @@ const retentionDays = () => Number($('retention').value) || 7;
 const cutoff = () => Date.now() - retentionDays() * DAY;
 const store = new PositionStore({ maxPoints: 2000, maxTotal: 100000, adapters: [recordedPositions, livePositions, ...additionalAdapters], onAdd(p) {
   if (restoring) { metrics.restored++; return; }
-  if (p.origin === 'live') { metrics.live++; metrics.lastLiveAt = Date.now(); }
+  if (p.cached) metrics.restored++;
+  else if (p.origin === 'live') { metrics.live++; metrics.lastLiveAt = Date.now(); }
   else if (p.origin === 'recorded') metrics.recorded++;
   if (database && !storageFailure && p.time >= cutoff()) {
     writeBuffer.set(fixId(p), p);
@@ -121,10 +122,13 @@ function draw() {
   $('protocol-count').textContent = new Set(all.map((p) => p.protocol)).size;
   $('last').textContent = all[0] ? age(all[0].time) : '—'; $('last-detail').textContent = all[0] ? `${all[0].system} · unit ${all[0].unit}` : 'Waiting for a GPS fix';
   $('shown').textContent = `${visible.length} / ${all.length}`;
-  $('connection').textContent = demo ? 'Demo data' : rec?.connected ? 'Connected' : 'Reconnecting…';
+  $('connection').textContent = demo ? 'Demo data' : rec?.connected ? (rec.capabilities.includes('gpsHistory') ? 'Plugin connected' : 'Connected') : 'Reconnecting…';
   $('connection').classList.toggle('ok', !demo && !!rec?.connected);
+  $('browser-history-hint').textContent = rec?.capabilities.includes('gpsHistory') ? 'This is a browser cache. The plugin keeps collecting on the recorder machine when this page closes.' : 'Saved on this browser and device. Live collection stops when this page closes.';
+  $('plugin-history-panel').hidden = !rec?.capabilities.includes('gpsHistory');
+  if (rec?.pluginStats) $('plugin-history-status').textContent = `${rec.pluginStats.count.toLocaleString()} positions saved on the recorder machine · ${rec.pluginStats.retentionDays} day retention · ${(rec.pluginStats.bytes / 1048576).toFixed(1)} MiB including SQLite journals`;
   $('notice').textContent = !r.valid ? 'The From time must be before the To time.' : demo ? 'Demo mode · fictional positions and a separate demo history store.' :
-    error || (!rec?.connected ? 'Recorder disconnected. Saved positions remain available; reconnecting automatically.' :
+    error || (rec?.collector && !rec.collector.connected ? 'GPS plugin is running, but its recorder connection is unavailable. It is retrying; check Recorder URL in the plugin settings if needed.' : '') || (!rec?.connected ? 'Recorder disconnected. Saved positions remain available; reconnecting automatically.' :
       rec.phase.phase !== 'running' ? 'Recorder is idle. Saved and recorded positions remain available.' :
         playhead != null ? 'History playback · markers show the last observation at or before the selected time.' : 'Receiving decoded GPS positions. Stale locations may no longer reflect the radio’s location.');
   $('radios').innerHTML = visible.map((p, i) => `<tr class="${unitKey(p) === selected ? 'selected' : ''}"><td><button data-index="${i}" aria-pressed="${unitKey(p) === selected}"><span class="radio-dot" style="background:${radioColor(p, radioPrefs)}"></span>${esc(name(p))}</button><small>Unit ${p.unit} <button data-favorite="${i}" aria-label="${radioPrefs[unitKey(p)]?.favorite ? 'Remove favorite' : 'Add favorite'} ${p.unit}" aria-pressed="${!!radioPrefs[unitKey(p)]?.favorite}">${radioPrefs[unitKey(p)]?.favorite ? '★' : '☆'}</button></small></td>
@@ -140,7 +144,9 @@ function draw() {
   $('older').textContent = search.state.running && search.state.kind === 'older' ? 'Loading calls…' : 'Load older calls';
   $('search-history').disabled = demo || !rec?.connected || !rec.capabilities.includes('calls') || search.state.running || !r.valid;
   $('cancel-backfill').disabled = !search.state.running;
-  $('backfill-status').textContent = demo ? 'Demo mode: no recorder searches' : !rec?.connected ? 'Waiting for the recorder' : !rec.capabilities.includes('calls') ? 'Recorder call store unavailable; recent greeting history still loads' : `${search.state.message} · ${search.state.pages} pages · ${search.state.calls} calls checked`;
+  const serverHistory = rec?.capabilities.includes('gpsHistory');
+  $('search-history').textContent = serverHistory ? 'Search saved positions' : 'Search recorded calls';
+  $('backfill-status').textContent = demo ? 'Demo mode: no recorder searches' : !rec?.connected ? 'Waiting for the recorder' : !rec.capabilities.includes('calls') ? 'Recorder call store unavailable; recent greeting history still loads' : `${search.state.message} · ${search.state.pages} pages · ${search.state.calls} ${serverHistory ? 'positions' : 'calls'} checked`;
   const p = visible.find((v) => unitKey(v) === selected), trail = p ? viewTrails.get(selected) : [];
   const gap = trail?.length > 1 ? trail.at(-1).time - trail.at(-2).time : 0;
   $('details').innerHTML = p ? `<h3>${esc(name(p))}</h3><p class="system">${esc(p.system)} · unit ${p.unit}</p><dl><div><dt>Latitude / longitude</dt><dd class="coordinates">${p.lat.toFixed(5)}<br>${p.lon.toFixed(5)}</dd></div>
@@ -159,10 +165,13 @@ function draw() {
   if ($('follow').checked && p) map.center = map.projectPosition(p);
   map.update(visible, { trail: (key) => viewTrails.get(key) || [] }, selected, $('trails').checked, $('basemap').value, { cluster: $('cluster').checked, color: (p) => radioColor(p, radioPrefs) });
   $('storage-status').textContent = !storageReady ? 'Opening saved positions…' : storageFailure ? `Session only: ${storageFailure}` : `${storageStats.count.toLocaleString()} saved positions · about ${(storageStats.bytes / 1024).toFixed(1)} KiB of position data · ${retentionDays()} day retention`;
+  $('export-all').textContent = serverHistory ? 'Export browser history' : 'Export all history';
+  $('clear-history').textContent = serverHistory ? 'Clear browser cache…' : 'Clear position history…';
   $('clear-history').disabled = !storageReady;
   $('export-all').disabled = !store.total && !storageStats.count;
   $('diagnostics').textContent = $('basemap').value === 'osm' ? 'Browser history · map tiles from OpenStreetMap' : 'Browser history · offline map source';
-  const diagnostics = [ ['Recorder', rec?.connected ? `Connected · ${rec.version || 'unknown version'}` : demo ? 'Demo' : 'Disconnected'], ['Recorder phase', rec?.phase?.phase || '—'], ['Last recorder message', metrics.lastMessageAt ? age(metrics.lastMessageAt) : 'None'], ['Last live GPS received', metrics.lastLiveAt ? age(metrics.lastLiveAt) : 'None this visit'], ['Live fixes this visit', metrics.live], ['Recorded fixes this visit', metrics.recorded], ['Restored browser fixes', metrics.restored], ['Invalid fixes rejected', store.rejected], ['Unreadable position logs', metrics.unreadableLogs], ['Adapter errors', store.adapterErrors], ['Map tiles', `${tileStatus.ready} ready · ${tileStatus.failed} failed · ${tileStatus.loading} loading`], ['Display memory', `${store.total.toLocaleString()} observations`] ];
+  const diagnostics = [ ['Recorder', rec?.connected ? `Connected · ${rec.version || 'unknown version'}` : demo ? 'Demo' : 'Disconnected'], ['Recorder phase', rec?.phase?.phase || '—'], [rec?.capabilities.includes('gpsHistory') ? 'Last plugin message' : 'Last recorder message', metrics.lastMessageAt ? age(metrics.lastMessageAt) : 'None'], ['Last live GPS received', metrics.lastLiveAt ? age(metrics.lastLiveAt) : 'None this visit'], ['Live fixes this visit', metrics.live], ['Recorded fixes this visit', metrics.recorded], [rec?.capabilities.includes('gpsHistory') ? 'Restored history fixes' : 'Restored browser fixes', metrics.restored], ['Invalid fixes rejected', store.rejected], ['Unreadable position logs', metrics.unreadableLogs], ['Adapter errors', store.adapterErrors], ['Map tiles', `${tileStatus.ready} ready · ${tileStatus.failed} failed · ${tileStatus.loading} loading`], ['Display memory', `${store.total.toLocaleString()} observations`] ];
+  if (rec?.collector) diagnostics.push(['Recorder source', rec.collector.connected ? `Connected · ${rec.collector.recorderVersion || 'unknown version'}` : 'Disconnected']);
   $('diagnostic-content').innerHTML = diagnostics.map(([k, v]) => `<div><span>${esc(k)}</span><strong>${esc(v)}</strong></div>`).join('');
   $('gps-explanation').textContent = !rec?.connected && !demo ? 'No recorder connection. Saved browser positions remain available. Serve this folder from TR Pro to reconnect.' :
     !metrics.live && !metrics.recorded && !all.length ? 'No decoded coordinates received. Check that the radio transmits GPS and the recorder supports its format. This interface cannot distinguish unsupported GPS traffic from no GPS traffic.' :
@@ -179,7 +188,7 @@ async function flush() {
 async function maintenance() {
   if (!database || maintenanceRunning) return;
   maintenanceRunning = true;
-  try { await flush(); await database.prune(cutoff()); store.prune(cutoff()); await refreshStats(); }
+  try { await flush(); await database.prune(cutoff()); store.prune(rec?.capabilities.includes('gpsHistory') ? Date.now() - (rec.pluginStats?.retentionDays || 365) * DAY : cutoff()); await refreshStats(); }
   catch (e) { storageFailure = e.message; queueDraw(); }
   finally { maintenanceRunning = false; }
 }
@@ -238,6 +247,7 @@ else {
     const { TrunkClient } = await import('/api/client.js'); rec = new TrunkClient();
     rec.on('message', (m) => {
       metrics.lastMessageAt = Date.now();
+      if (m.type === 'error') error = m.message;
       if (m.type === 'callsResult') { search.receive(m); return; }
       if (m.type === 'log') for (const line of m.lines || []) if (line.kind === 'position') { metrics.positionLogs++; if (!/^Unit (\d+) at (-?\d+(?:\.\d+)?), (-?\d+(?:\.\d+)?) \(TG (\d+)\)$/.test(line.text || '')) metrics.unreadableLogs++; }
       store.ingest(m, { rec, receivedAt: Date.now() });

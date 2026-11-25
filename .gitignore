@@ -4,3 +4,7 @@ node_modules/
 playwright-report/
 test-results/
 release-assets/
+/bin/
+/dist/
+*.sqlite*
+plugin-data/

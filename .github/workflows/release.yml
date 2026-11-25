@@ -1,35 +1,48 @@
-name: Publish interface release
-
+name: Publish GPS plugin release
 on:
   push:
     tags: ['v*']
   workflow_dispatch:
-
 permissions:
-  contents: write
-
+  contents: read
 jobs:
-  release:
+  verify:
     runs-on: ubuntu-24.04
     timeout-minutes: 15
+    outputs:
+      version: ${{ steps.meta.outputs.version }}
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.27.4'
       - uses: actions/setup-node@v4
         with:
           node-version: '24'
-      - name: Test position and history models
-        run: npm test
-      - name: Install browser test tools
+      - name: Verify backend and browser models
         run: |
-          npm install --no-save --package-lock=false playwright@1.57.0
-          npx playwright install --with-deps chromium
-      - name: Test complete interface flows
-        env:
-          CHROMIUM_EXECUTABLE: bundled
-        shell: bash
+          go test -race ./...
+          npm test
+          go build -o bin/gps-history .
+          go build -o bin/mock-recorder ./cmd/mock-recorder
+      - id: meta
+        name: Validate version and plugin manifest
+        run: |
+          bin/gps-history --describe > plugin.manifest.json
+          python3 - <<'PY'
+          import json,os
+          m=json.load(open('plugin.manifest.json'))
+          assert m['api']==1 and m['id']=='gps-history'
+          if os.environ['GITHUB_REF_TYPE']=='tag': assert os.environ['GITHUB_REF_NAME']=='v'+m['version']
+          with open(os.environ['GITHUB_OUTPUT'],'a') as f:f.write('version='+m['version']+'\n')
+          PY
+      - name: Verify interface and real plugin flows
         run: |
           set -euo pipefail
-          python3 -m http.server 8765 --bind 127.0.0.1 >/tmp/tracker-preview.log 2>&1 &
+          npm install --no-save --package-lock=false playwright@1.57.0
+          tracker_browser=$(command -v google-chrome || command -v chromium)
+          export CHROMIUM_EXECUTABLE="$tracker_browser"
+          python3 -m http.server 8765 --bind 127.0.0.1 >/tmp/preview.log 2>&1 &
           tracker_server=$!
           trap 'kill "$tracker_server" || true' EXIT
           for attempt in {1..50}; do
@@ -38,42 +51,100 @@ jobs:
           done
           node tests/browser-smoke.cjs
           node tests/enhancements-smoke.cjs
-      - name: Package interface
-        shell: python
+          node tests/plugin-browser.cjs
+  build:
+    needs: verify
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { target: x86_64-unknown-linux-gnu, os: ubuntu-24.04, goos: linux, goarch: amd64 }
+          - { target: aarch64-unknown-linux-gnu, os: ubuntu-24.04, goos: linux, goarch: arm64 }
+          - { target: universal-apple-darwin, os: macos-14, goos: darwin, goarch: arm64 }
+          - { target: x86_64-pc-windows-msvc, os: windows-latest, goos: windows, goarch: amd64 }
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.27.4'
+      - name: Build native plugin
+        if: matrix.goos != 'darwin'
+        shell: bash
+        env:
+          CGO_ENABLED: '0'
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
         run: |
-          import hashlib, json, os, pathlib, subprocess, zipfile
-          root = pathlib.Path.cwd()
-          manifest = json.loads((root / 'interface.json').read_text())
-          version = manifest['version']
-          tag = f'v{version}'
-          if os.environ['GITHUB_REF_TYPE'] == 'tag':
-              assert os.environ['GITHUB_REF_NAME'] == tag, 'Tag must match interface.json version'
-          name = f"{manifest['id']}-{version}"
-          out = root / 'release-assets'
-          out.mkdir()
-          files = subprocess.check_output(['git', 'ls-files'], text=True).splitlines()
-          with zipfile.ZipFile(out / f'{name}.zip', 'w', zipfile.ZIP_DEFLATED) as archive:
-              for filename in files:
-                  archive.write(root / filename, f'{name}/{filename}')
-          for screenshot in manifest.get('screenshots', []):
-              source = root / screenshot['path']
-              (out / f'{name}-{source.name}').write_bytes(source.read_bytes())
-          assets = sorted(out.iterdir())
-          (out / 'SHA256SUMS').write_text(''.join(
-              f'{hashlib.sha256(asset.read_bytes()).hexdigest()}  {asset.name}\n'
-              for asset in assets
-          ))
-          with (pathlib.Path(os.environ['GITHUB_ENV'])).open('a') as env:
-              env.write(f'RELEASE_TAG={tag}\n')
-      - name: Upload assets and publish
+          mkdir -p bin
+          suffix=''
+          if [ "$GOOS" = windows ]; then suffix='.exe'; fi
+          go build -trimpath -ldflags='-s -w' -o "bin/gps-history$suffix" .
+      - name: Build universal macOS plugin
+        if: matrix.goos == 'darwin'
+        shell: bash
+        env:
+          CGO_ENABLED: '0'
+        run: |
+          mkdir -p bin
+          GOOS=darwin GOARCH=arm64 go build -trimpath -ldflags='-s -w' -o bin/gps-history-arm64 .
+          GOOS=darwin GOARCH=amd64 go build -trimpath -ldflags='-s -w' -o bin/gps-history-amd64 .
+          lipo -create -output bin/gps-history bin/gps-history-arm64 bin/gps-history-amd64
+      - name: Verify manifest and package
+        shell: bash
+        run: |
+          go run . --describe > plugin.manifest.json
+          suffix=''
+          if [ '${{ matrix.goos }}' = windows ]; then suffix='.exe'; fi
+          if [ '${{ matrix.target }}' != aarch64-unknown-linux-gnu ]; then
+            "./bin/gps-history$suffix" --describe > built.manifest.json
+            python3 -c 'import json; assert json.load(open("built.manifest.json"))==json.load(open("plugin.manifest.json"))'
+          fi
+          python3 scripts/third_party_notices.py
+          python3 scripts/package_plugin.py --binary "bin/gps-history$suffix" --target '${{ matrix.target }}' --manifest plugin.manifest.json
+          if [ '${{ matrix.target }}' = x86_64-unknown-linux-gnu ]; then
+            cp plugin.manifest.json 'dist/gps-history-${{ needs.verify.outputs.version }}.manifest.json'
+          fi
+      - uses: actions/upload-artifact@v4
+        with:
+          name: plugin-${{ matrix.target }}
+          path: dist/*
+  publish:
+    needs: [verify, build]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: plugin-*
+          path: dist
+          merge-multiple: true
+      - name: Check platform assets and checksums
+        run: |
+          python3 - <<'PY'
+          import pathlib,hashlib,json
+          p=pathlib.Path('dist');m=json.loads(next(p.glob('*.manifest.json')).read_text())
+          for t in ['x86_64-unknown-linux-gnu','aarch64-unknown-linux-gnu','universal-apple-darwin','x86_64-pc-windows-msvc']:
+              ext='zip' if 'windows' in t else 'tar.gz'
+              assert (p/f"gps-history-{m['version']}-{t}.{ext}").is_file()
+          files=sorted(p.iterdir());(p/'SHA256SUMS').write_text(''.join(hashlib.sha256(f.read_bytes()).hexdigest()+'  '+f.name+'\n' for f in files))
+          PY
+      - uses: actions/attest-build-provenance@v4
+        with:
+          subject-checksums: dist/SHA256SUMS
+      - name: Publish tested plugin release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GH_REPO: ${{ github.repository }}
-        shell: bash
+          RELEASE_TAG: v${{ needs.verify.outputs.version }}
         run: |
           set -euo pipefail
           if ! gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
-            gh release create "$RELEASE_TAG" --target "$GITHUB_SHA" --title "Radio positions $RELEASE_TAG" --generate-notes --draft
+            gh release create "$RELEASE_TAG" --target "$GITHUB_SHA" --title "GPS history plugin $RELEASE_TAG" --generate-notes --draft
           fi
-          gh release upload "$RELEASE_TAG" release-assets/* --clobber
+          gh release upload "$RELEASE_TAG" dist/* --clobber
           gh release edit "$RELEASE_TAG" --draft=false --latest

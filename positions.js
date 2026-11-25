@@ -21,6 +21,10 @@ export function protocolFor(system, rec) {
 export const recordedPositions = {
   id: "recorded-calls",
   read(message) {
+    // These fields belong to the GPS plugin API, not TR Pro's native API.
+    if (['history', 'callsResult', 'gpsFix'].includes(message.type) && Array.isArray(message.positions)) {
+      return message.positions.map((p) => ({ ...p, cached: message.type !== 'gpsFix' }));
+    }
     const entries = message.type === "concluded" ? [message.entry] :
       ["history", "callsResult"].includes(message.type) ? message.entries ?? [] : [];
     return entries.flatMap(({ record: r }) => (r?.srcList ?? []).filter((s) => s.lat != null || s.lon != null).map((s) => ({
