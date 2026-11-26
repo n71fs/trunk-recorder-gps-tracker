@@ -330,3 +330,56 @@ func TestSourceMetadataBackfill(t *testing.T) {
 		t.Fatal("backfill range not fixed")
 	}
 }
+
+func TestCurrentNamesAndCollectionState(t *testing.T) {
+	s := newState()
+	now := time.Now()
+	decode := func(message string) {
+		t.Helper()
+		if _, err := s.decode([]byte(message), now); err != nil {
+			t.Fatal(err)
+		}
+	}
+	decode(`{"type":"unitAlias","system":"city","unit":42,"alias":"New alias"}`)
+	decode(`{"type":"unitNames","system":"city","unitNames":[{"unit":"/^4(.*)$/","name":"Engine $1"}]}`)
+	before := s.nameSnapshot()
+	decode(`{"type":"unitNameEdited","system":"city","unit":42,"name":"Dispatch"}`)
+	rows := s.nameSnapshot()["rows"].(map[string][]unitNameRow)["city"]
+	if len(rows) != 2 || rows[0].Unit != "42" || rows[0].Name != "Dispatch" {
+		t.Fatal(rows)
+	}
+	decode(`{"type":"unitNameEdited","system":"city","unit":42,"name":""}`)
+	if len(s.nameSnapshot()["rows"].(map[string][]unitNameRow)["city"]) != 1 {
+		t.Fatal("name removal failed")
+	}
+	decode(`{"type":"unitAlias","system":"city","unit":42,"alias":""}`)
+	if before["aliases"].(map[string]map[string]string)["city"]["42"] != "New alias" {
+		t.Fatal("snapshot aliases mutated")
+	}
+	decode(`{"type":"history","entries":[{"record":{"short_name":"city","srcList":[{"src":42,"lat":38,"lon":-77,"time":1700000000,"tag":"Old history name"}]}}]}`)
+	if s.nameSnapshot()["aliases"].(map[string]map[string]string)["city"]["42"] != "" {
+		t.Fatal("history replaced cleared live alias")
+	}
+	decode(`{"type":"units","system":"city","csv":""}`)
+	if !s.nameSnapshot()["completeAliases"].(map[string]bool)["city"] {
+		t.Fatal("empty alias list not authoritative")
+	}
+	decode(`{"type":"hello","version":"test"}`)
+	if s.snapshot()["lastLiveMs"] != int64(0) {
+		t.Fatal("history counted as live GPS")
+	}
+	s.setConnected(false)
+	s.setConnected(false)
+	gap := s.snapshot()["gaps"].([]connectionGap)
+	if len(gap) != 1 || gap[0].To != 0 {
+		t.Fatal(gap)
+	}
+	now = time.Now().Add(time.Second)
+	decode(`{"type":"hello","version":"test"}`)
+	if s.snapshot()["reconnects"] != 1 || s.snapshot()["gaps"].([]connectionGap)[0].To == 0 {
+		t.Fatal(s.snapshot())
+	}
+	if gap[0].To != 0 {
+		t.Fatal("gap snapshot mutated")
+	}
+}

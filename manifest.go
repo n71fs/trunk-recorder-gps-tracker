@@ -9,16 +9,17 @@ import (
 )
 
 const pluginID = "gps-history"
-const version = "0.4.2"
+const version = "0.5.0"
 
 type Config struct {
-	BackfillHours int    `json:"backfill_hours"`
-	RecorderURL   string `json:"recorder_url"`
-	Listen        string `json:"listen"`
-	AdvertiseHost string `json:"advertise_host"`
-	RetentionDays int    `json:"retention_days"`
-	MaxPositions  int    `json:"max_positions"`
-	DashboardURL  string `json:"dashboard_url"`
+	BackfillHours   int    `json:"backfill_hours"`
+	RecorderURL     string `json:"recorder_url"`
+	Listen          string `json:"listen"`
+	AdvertiseHost   string `json:"advertise_host"`
+	RetentionDays   int    `json:"retention_days"`
+	MaxPositions    int    `json:"max_positions"`
+	DashboardURL    string `json:"dashboard_url"`
+	DashboardListen string `json:"dashboard_listen"`
 }
 
 func readConfig(raw json.RawMessage) (Config, error) {
@@ -61,13 +62,14 @@ func manifest() map[string]any {
 		"subscribe": []string{}, "audio_formats": []string{}, "license": "GPL-3.0-or-later", "repository": "https://github.com/n71fs/trunk-recorder-gps-tracker",
 		"page": map[string]string{"title": "GPS history"}, "live_settings": true,
 		"config": map[string]any{"type": "object", "properties": map[string]any{
-			"recorder_url":   prop("string", "Recorder URL", "http://127.0.0.1:8080"),
-			"listen":         map[string]any{"type": "string", "title": "Dashboard bind address", "default": "auto", "description": "auto listens on Dashboard address when set; otherwise follows recorder bind; port 8095 or a free port"},
-			"advertise_host": map[string]any{"type": "string", "title": "Dashboard address", "default": "auto", "description": "IP for dashboard links; with auto bind, also selects the listening IP. auto prefers Tailscale for a network-facing recorder"},
-			"backfill_hours": map[string]any{"type": "integer", "title": "Backfill recorded GPS, hours", "default": 24, "minimum": 0, "maximum": 720, "description": "Read available call metadata on connection; 0 disables this, and searches stop after 50,000 calls"},
-			"retention_days": map[string]any{"type": "integer", "title": "Keep GPS history, days", "default": 30, "minimum": 1, "maximum": 365},
-			"max_positions":  map[string]any{"type": "integer", "title": "Maximum saved positions", "default": 1000000, "minimum": 1000, "maximum": 10000000},
-			"dashboard_url":  map[string]any{"type": "string", "title": "GPS dashboard", "format": "uri", "readOnly": true, "x-open": "Open GPS dashboard", "description": "Private read-only access link; share only with intended viewers"},
+			"recorder_url":     prop("string", "Recorder URL", "http://127.0.0.1:8080"),
+			"listen":           map[string]any{"type": "string", "title": "Dashboard bind address", "default": "auto", "description": "auto listens on Dashboard address when set; otherwise follows recorder bind; port 8095 or a free port"},
+			"advertise_host":   map[string]any{"type": "string", "title": "Dashboard address", "default": "auto", "description": "IP for dashboard links; with auto bind, also selects the listening IP. auto prefers Tailscale for a network-facing recorder"},
+			"backfill_hours":   map[string]any{"type": "integer", "title": "Backfill recorded GPS, hours", "default": 24, "minimum": 0, "maximum": 720, "description": "Read available call metadata on connection; 0 disables this, and searches stop after 50,000 calls"},
+			"retention_days":   map[string]any{"type": "integer", "title": "Keep GPS history, days", "default": 30, "minimum": 1, "maximum": 365},
+			"max_positions":    map[string]any{"type": "integer", "title": "Maximum saved positions", "default": 1000000, "minimum": 1000, "maximum": 10000000},
+			"dashboard_listen": map[string]any{"type": "string", "title": "Actual dashboard listener", "readOnly": true, "description": "An IP starting with 127 or ::1 is local only. Remote access must allow this TCP port through your firewall/VPN."},
+			"dashboard_url":    map[string]any{"type": "string", "title": "GPS dashboard", "format": "uri", "readOnly": true, "x-open": "Open GPS dashboard", "description": "Private read-only access link; share only with intended viewers"},
 		}},
 	}
 }

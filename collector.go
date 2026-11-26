@@ -16,7 +16,27 @@ import (
 	"time"
 )
 
+type unitNameRow struct {
+	Unit string `json:"unit"`
+	Name string `json:"name"`
+}
+type connectionGap struct {
+	From int64 `json:"fromMs"`
+	To   int64 `json:"toMs"`
+}
 type runtimeState struct {
+	nameRows        map[string][]unitNameRow
+	completeAliases map[string]bool
+	nameModes       map[string]string
+	startedMs       int64
+	connectedMs     int64
+	disconnectedMs  int64
+	lastMessageMs   int64
+	lastLiveMs      int64
+	lastSavedMs     int64
+	reconnects      int
+	gaps            []connectionGap
+
 	mu              sync.RWMutex
 	connected       bool
 	recorderVersion string
@@ -31,7 +51,7 @@ type runtimeState struct {
 }
 
 func newState() *runtimeState {
-	return &runtimeState{phase: "idle", bind: "127.0.0.1", config: map[string]any{"systems": []any{}, "conventional": []any{}}, protocols: map[string]string{}, names: map[string]string{}, configured: make(chan struct{})}
+	return &runtimeState{completeAliases: map[string]bool{}, nameRows: map[string][]unitNameRow{}, nameModes: map[string]string{}, startedMs: time.Now().UnixMilli(), phase: "idle", bind: "127.0.0.1", config: map[string]any{"systems": []any{}, "conventional": []any{}}, protocols: map[string]string{}, names: map[string]string{}, configured: make(chan struct{})}
 }
 func unitNameKey(system string, unit uint32) string {
 	return system + "\x00" + strconv.FormatUint(uint64(unit), 10)
@@ -39,10 +59,17 @@ func unitNameKey(system string, unit uint32) string {
 func (s *runtimeState) snapshot() map[string]any {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	return map[string]any{"connected": s.connected, "recorderVersion": s.recorderVersion, "phase": s.phase, "nowS": s.nowS, "config": s.config}
+	return map[string]any{"connected": s.connected, "recorderVersion": s.recorderVersion, "phase": s.phase, "nowS": s.nowS, "config": s.config, "startedMs": s.startedMs, "connectedMs": s.connectedMs, "disconnectedMs": s.disconnectedMs, "lastMessageMs": s.lastMessageMs, "lastLiveMs": s.lastLiveMs, "lastSavedMs": s.lastSavedMs, "reconnects": s.reconnects, "gaps": append([]connectionGap{}, s.gaps...)}
 }
 func (s *runtimeState) setConnected(connected bool) {
 	s.mu.Lock()
+	if s.connected && !connected {
+		s.disconnectedMs = time.Now().UnixMilli()
+		s.gaps = append(s.gaps, connectionGap{From: s.disconnectedMs})
+		if len(s.gaps) > 20 {
+			s.gaps = s.gaps[len(s.gaps)-20:]
+		}
+	}
 	s.connected = connected
 	s.mu.Unlock()
 }
@@ -51,23 +78,31 @@ var positionLine = regexp.MustCompile(`^Unit (\d+) at (-?\d+(?:\.\d+)?), (-?\d+(
 
 func (s *runtimeState) decode(data []byte, now time.Time) ([]Fix, error) {
 	var m struct {
-		Type    string `json:"type"`
-		Phase   string `json:"phase"`
-		Version string `json:"version"`
-		Unit    uint32 `json:"unit"`
-		Alias   string `json:"alias"`
-		System  string `json:"system"`
-		CSV     string `json:"csv"`
-		Config  struct {
+		Type      string        `json:"type"`
+		Phase     string        `json:"phase"`
+		Version   string        `json:"version"`
+		Unit      uint32        `json:"unit"`
+		Alias     string        `json:"alias"`
+		System    string        `json:"system"`
+		CSV       string        `json:"csv"`
+		Name      string        `json:"name"`
+		UnitNames []unitNameRow `json:"unitNames"`
+		Config    struct {
 			Systems []struct {
 				ShortName string `json:"shortName"`
 				Name      string `json:"name"`
 				Type      string `json:"type"`
+				UnitNames struct {
+					Mode string `json:"mode"`
+				} `json:"unitNames"`
 			} `json:"systems"`
 			Conventional []struct {
 				ShortName string `json:"shortName"`
 				Name      string `json:"name"`
 				Type      string `json:"type"`
+				UnitNames struct {
+					Mode string `json:"mode"`
+				} `json:"unitNames"`
 			} `json:"conventional"`
 			Server struct {
 				Bind string `json:"bind"`
@@ -91,10 +126,20 @@ func (s *runtimeState) decode(data []byte, now time.Time) ([]Fix, error) {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	s.lastMessageMs = now.UnixMilli()
 	fixes := []Fix{}
 	switch m.Type {
 	case "hello":
 		s.recorderVersion = m.Version
+		if !s.connected {
+			s.connectedMs = now.UnixMilli()
+			if s.disconnectedMs > 0 {
+				s.reconnects++
+				if len(s.gaps) > 0 {
+					s.gaps[len(s.gaps)-1].To = s.connectedMs
+				}
+			}
+		}
 		s.connected = true
 	case "state":
 		s.phase = m.Phase
@@ -104,6 +149,7 @@ func (s *runtimeState) decode(data []byte, now time.Time) ([]Fix, error) {
 		systems := []any{}
 		conventional := []any{}
 		for _, v := range m.Config.Systems {
+			s.nameModes[v.ShortName] = v.UnitNames.Mode
 			s.protocols[v.ShortName] = v.Type
 			systems = append(systems, map[string]string{"shortName": v.ShortName, "name": v.Name, "type": v.Type})
 		}
@@ -112,6 +158,7 @@ func (s *runtimeState) decode(data []byte, now time.Time) ([]Fix, error) {
 			if kind == "" {
 				kind = "conventional"
 			}
+			s.nameModes[v.ShortName] = v.UnitNames.Mode
 			s.protocols[v.ShortName] = kind
 			conventional = append(conventional, map[string]string{"shortName": v.ShortName, "name": v.Name, "type": kind})
 		}
@@ -121,9 +168,43 @@ func (s *runtimeState) decode(data []byte, now time.Time) ([]Fix, error) {
 			s.bind = m.Config.Server.Bind
 		}
 		s.once.Do(func() { close(s.configured) })
+	case "unitNames":
+		s.nameRows[m.System] = append([]unitNameRow{}, m.UnitNames...)
+	case "unitNameEdited":
+		key := strconv.FormatUint(uint64(m.Unit), 10)
+		rows := []unitNameRow{}
+		at := -1
+		for _, row := range s.nameRows[m.System] {
+			if row.Unit == key {
+				at = len(rows)
+				continue
+			}
+			rows = append(rows, row)
+		}
+		if strings.TrimSpace(m.Name) != "" {
+			if at < 0 {
+				at = len(rows)
+				for i, row := range rows {
+					if strings.HasPrefix(row.Unit, "/") {
+						at = i
+						break
+					}
+				}
+			}
+			rows = append(rows, unitNameRow{})
+			copy(rows[at+1:], rows[at:])
+			rows[at] = unitNameRow{Unit: key, Name: strings.TrimSpace(m.Name)}
+		}
+		s.nameRows[m.System] = rows
 	case "unitAlias":
-		s.names[unitNameKey(m.System, m.Unit)] = m.Alias
+		s.names[unitNameKey(m.System, m.Unit)] = strings.TrimSpace(m.Alias)
 	case "units":
+		s.completeAliases[m.System] = true
+		for key := range s.names {
+			if strings.HasPrefix(key, m.System+"\x00") {
+				delete(s.names, key)
+			}
+		}
 		r := csv.NewReader(strings.NewReader(m.CSV))
 		r.FieldsPerRecord = -1
 		for {
@@ -166,9 +247,7 @@ func (s *runtimeState) decode(data []byte, now time.Time) ([]Fix, error) {
 				f := Fix{System: r.ShortName, Unit: v.Unit, Lat: *v.Lat, Lon: *v.Lon, Time: int64(v.Time * 1000), Protocol: kind, Name: name, Talkgroup: r.Talkgroup, Origin: "recorded", EstimatedTime: true}
 				if f.valid() {
 					fixes = append(fixes, f)
-					if name != "" {
-						s.names[unitNameKey(r.ShortName, v.Unit)] = name
-					}
+					// Historical names stay on the fix; never overwrite current recorder aliases.
 				}
 			}
 		}
@@ -198,6 +277,7 @@ func (s *runtimeState) decode(data []byte, now time.Time) ([]Fix, error) {
 			}
 			f := Fix{System: line.System, Unit: uint32(unit), Lat: lat, Lon: lon, Time: observed, Protocol: s.protocols[line.System], Name: s.names[unitNameKey(line.System, uint32(unit))], Talkgroup: uint32(tg), Origin: "live", EstimatedTime: estimated}
 			if f.valid() {
+				s.lastLiveMs = now.UnixMilli()
 				fixes = append(fixes, f)
 			}
 		}
@@ -300,6 +380,12 @@ func (a *application) collect(ctx context.Context) {
 						a.output.send(map[string]any{"type": "log", "level": "warn", "message": "Recorded GPS backfill stopped at the page limit or a repeated cursor; live collection continues"})
 					}
 				}
+				if msg.Type == "unitAlias" || msg.Type == "units" || msg.Type == "unitNames" || msg.Type == "unitNameEdited" || msg.Type == "hello" || msg.Type == "config" {
+					a.hub.publish(a.state.nameSnapshot())
+				}
+				if len(fixes) > 0 {
+					a.publishState()
+				}
 				if msg.Type == "hello" || msg.Type == "state" || msg.Type == "config" || msg.Type == "status" {
 					a.publishState()
 				}
@@ -323,4 +409,34 @@ func (a *application) collect(ctx context.Context) {
 			delay *= 2
 		}
 	}
+}
+
+// Copy names under the lock so WebSocket serialization cannot race recorder edits.
+func (s *runtimeState) nameSnapshot() map[string]any {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	aliases := map[string]map[string]string{}
+	for key, name := range s.names {
+		parts := strings.SplitN(key, "\x00", 2)
+		if len(parts) != 2 {
+			continue
+		}
+		if aliases[parts[0]] == nil {
+			aliases[parts[0]] = map[string]string{}
+		}
+		aliases[parts[0]][parts[1]] = name
+	}
+	rows := map[string][]unitNameRow{}
+	for system, list := range s.nameRows {
+		rows[system] = append([]unitNameRow{}, list...)
+	}
+	modes := map[string]string{}
+	for system, mode := range s.nameModes {
+		modes[system] = mode
+	}
+	complete := map[string]bool{}
+	for system, known := range s.completeAliases {
+		complete[system] = known
+	}
+	return map[string]any{"type": "radioNames", "aliases": aliases, "rows": rows, "modes": modes, "completeAliases": complete}
 }

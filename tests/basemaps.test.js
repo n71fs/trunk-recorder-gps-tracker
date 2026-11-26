@@ -100,7 +100,7 @@ test("map labels prefer aliases, fall back to IDs for blank names, and distingui
     labels.length = 0;
     view.options = { label: (p) => p.unit === 42 ? 'Custom engine' : '' };
     view.draw();
-    assert.equal(labels[0], 'Custom engine');
+    assert.deepEqual(labels, ['Custom engine', '43', '44 · city', '44 · county'], 'an authoritative empty label must not resurrect a historical alias');
   } finally {
     for (const [name, descriptor] of saved) {
       if (descriptor) Object.defineProperty(globalThis, name, descriptor);

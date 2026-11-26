@@ -1,7 +1,7 @@
 {
   "id": "gps-tracker",
   "name": "Radio positions",
-  "version": "0.4.2",
+  "version": "0.5.0",
   "description": "Track radio GPS positions with saved browser history, recorded-call backfill, timeline playback, favorites, diagnostics and OpenStreetMap basemaps.",
   "api": 1,
   "access": "listen",

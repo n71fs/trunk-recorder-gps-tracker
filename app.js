@@ -1,3 +1,4 @@
+import { collectionSummary } from './connection-view.js';
 import { PositionStore, unitKey, recordedPositions, livePositions } from './positions.js';
 import { additionalAdapters } from './adapters.js';
 import { PositionMap } from './map.js';
@@ -22,7 +23,7 @@ const writeBuffer = new Map();
 const metrics = { restored: 0, live: 0, recorded: 0, lastLiveAt: null, lastMessageAt: null, positionLogs: 0, unreadableLogs: 0 };
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const label = (p) => ({ p25: 'P25', p25_phase2: 'P25 Phase 2', dmr: 'DMR', nxdn: 'NXDN', nxdn48: 'NXDN48', nxdn96: 'NXDN96', unknown: 'Unknown', conventional: 'Conventional' }[p] || p);
-const alias = (p) => [radioPrefs[unitKey(p)]?.name, rec?.unitName(p.system, p.unit), p.name]
+const alias = (p) => [radioPrefs[unitKey(p)]?.name, rec?.unitName(p.system, p.unit), rec?.hasUnitNames?.(p.system, p.unit) ? '' : p.name]
   .find((value) => typeof value === 'string' && value.trim())?.trim() || '';
 const name = (p) => alias(p) || `Unit ${p.unit}`;
 const retentionDays = () => Number($('retention').value) || 7;
@@ -37,6 +38,40 @@ const store = new PositionStore({ maxPoints: 2000, maxTotal: 100000, adapters: [
     if (!flushTimer) flushTimer = setTimeout(flush, 500);
   }
 } });
+function drawConnection() {
+  const plugin = rec?.capabilities.includes('gpsHistory');
+  $('plugin-connection-panel').hidden = !plugin;
+  if (!plugin) return;
+  const source = rec.collector, info = rec.info;
+  $('collection-status').textContent = collectionSummary(rec.connected, source);
+  const when = (value) => value ? `${age(value)} · ${new Date(value).toLocaleString()}` : 'None since collection started';
+  const lastGap = source?.gaps?.at(-1);
+  const rows = [
+    ['Dashboard access', rec.connected ? 'Connected from this browser' : 'Disconnected; retrying'],
+    ['Listening address', info?.listen || 'Checking…'],
+    ['Recorder API', info?.recorderOrigin || 'Checking…'],
+    ['Recorder connection', source?.connected ? `Connected · ${source.recorderVersion || 'version unknown'}` : 'Disconnected; retrying'],
+    ['Collection started', when(source?.startedMs)],
+    ['Last recorder message', when(source?.lastMessageMs)],
+    ['Last live GPS received', when(source?.lastLiveMs)],
+    ['Last history save', when(source?.lastSavedMs)],
+    ['Recorder reconnections', source?.reconnects ?? 0],
+    ['Latest collection interruption', lastGap ? `${new Date(lastGap.fromMs).toLocaleString()} → ${lastGap.toMs ? new Date(lastGap.toMs).toLocaleString() : 'ongoing'}. GPS may be missing in this interval.` : 'None since collection started'],
+    ['Plugin version', info?.version || rec.version || 'Checking…'],
+  ];
+  $('plugin-connection-details').innerHTML = rows.map(([key, value]) => `<div><span>${esc(key)}</span><strong>${esc(value)}</strong></div>`).join('');
+  $('connection-help').textContent = info?.localOnly ? 'This listener accepts connections only on the recorder machine. For a phone, set Dashboard address to the recorder’s Tailscale/LAN IP and bind to auto, then allow the displayed TCP port in the firewall/VPN.' :
+    'This browser can reach the dashboard. Other devices need the complete private link and access to the displayed TCP port through their network, firewall and VPN. The Recorder API is a separate connection.';
+  const changed = info?.version && info.version !== $('dashboard-build-version').textContent.trim();
+  $('reload-dashboard').hidden = !changed;
+}
+$('plugin-connection-panel').open = innerWidth > 640;
+$('reload-dashboard').onclick = () => location.reload();
+$('copy-dashboard').onclick = async () => {
+  const url = new URL(location.href); url.search = ''; url.hash = `token=${rec?.token || new URLSearchParams(location.hash.slice(1)).get('token') || ''}`;
+  try { await navigator.clipboard.writeText(url.href); $('copy-dashboard-status').textContent = 'Private dashboard link copied. Anyone with this link can view saved GPS history.'; }
+  catch { const field = $('dashboard-link'); field.value = url.href; field.hidden = false; field.focus(); field.select(); $('copy-dashboard-status').textContent = 'Select and copy the private link below. Anyone with it can view saved GPS history.'; }
+};
 function savePreferences() { prefs.radios = radioPrefs; prefs.selected = selected; writeSettings(storage, prefs); }
 for (const id of ['search', 'system', 'protocol', 'age', 'range-from', 'range-to']) {
   if (typeof prefs.filters?.[id] === 'string' && !['system', 'protocol'].includes(id)) $(id).value = prefs.filters[id];
@@ -128,9 +163,10 @@ function draw() {
   $('connection').classList.toggle('ok', !demo && !!rec?.connected);
   $('browser-history-hint').textContent = rec?.capabilities.includes('gpsHistory') ? 'This is a browser cache. The plugin keeps collecting on the recorder machine when this page closes.' : 'Saved on this browser and device. Live collection stops when this page closes.';
   $('plugin-history-panel').hidden = !rec?.capabilities.includes('gpsHistory');
+  drawConnection();
   if (rec?.pluginStats) $('plugin-history-status').textContent = `${rec.pluginStats.count.toLocaleString()} positions saved on the recorder machine · ${rec.pluginStats.retentionDays} day retention · ${(rec.pluginStats.bytes / 1048576).toFixed(1)} MiB including SQLite journals`;
   $('notice').textContent = !r.valid ? 'The From time must be before the To time.' : demo ? 'Demo mode · fictional positions and a separate demo history store.' :
-    error || (rec?.collector && !rec.collector.connected ? 'GPS plugin is running, but its recorder connection is unavailable. It is retrying; check Recorder URL in the plugin settings if needed.' : '') || (!rec?.connected ? 'Recorder disconnected. Saved positions remain available; reconnecting automatically.' :
+    error || (rec?.capabilities.includes('gpsHistory') && playhead == null ? collectionSummary(rec.connected,rec.collector) : '') || (rec?.collector && !rec.collector.connected ? 'GPS plugin is running, but its recorder connection is unavailable. It is retrying; check Recorder URL in the plugin settings if needed.' : '') || (!rec?.connected ? 'Recorder disconnected. Saved positions remain available; reconnecting automatically.' :
       rec.phase.phase !== 'running' ? 'Recorder is idle. Saved and recorded positions remain available.' :
         playhead != null ? 'History playback · markers show the last observation at or before the selected time.' : 'Receiving decoded GPS positions. Stale locations may no longer reflect the radio’s location.');
   $('radios').innerHTML = visible.map((p, i) => `<tr class="${unitKey(p) === selected ? 'selected' : ''}"><td><button data-index="${i}" aria-pressed="${unitKey(p) === selected}"><span class="radio-dot" style="background:${radioColor(p, radioPrefs)}"></span>${esc(name(p))}</button><small>Unit ${p.unit} <button data-favorite="${i}" aria-label="${radioPrefs[unitKey(p)]?.favorite ? 'Remove favorite' : 'Add favorite'} ${p.unit}" aria-pressed="${!!radioPrefs[unitKey(p)]?.favorite}">${radioPrefs[unitKey(p)]?.favorite ? '★' : '☆'}</button></small></td>

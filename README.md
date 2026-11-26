@@ -1,6 +1,6 @@
 # GPS history plugin for Trunk Recorder Pro
 
-**v0.4.2 is a plugin release. Install it from the Plugins page, not Interfaces.**
+**v0.5.0 is a plugin release. Install it from the Plugins page, not Interfaces.**
 The previous browser-only interface remains available at
 [v0.3.0](https://github.com/n71fs/trunk-recorder-gps-tracker/releases/tag/v0.3.0).
 
@@ -105,6 +105,35 @@ observation time and coordinates, with stable pagination and separate radio IDs
 per system. Live times are approximate when the recorder provides engine seconds
 rather than a GPS timestamp. No manufacturer accuracy or exact GPS timestamp is
 invented.
+
+## Connection status and current names
+
+The dashboard's **Connection and collection** panel distinguishes the browser's
+plugin connection from the plugin's recorder connection. It shows the actual
+listener/port, recorder API origin, plugin version, last recorder message, last
+live GPS receipt and last successful history save. Connected without a fix is
+reported as waiting for GPS. Recent recorder interruptions are shown with their
+times; missing live-only fixes during those intervals cannot be assumed recovered.
+The plugin keeps at most 20 interruption records for the current collector session.
+These status timestamps and interruption records reset on plugin restart or a
+settings change that restarts collection; SQLite
+positions remain on disk.
+
+The same listener appears as **Actual dashboard listener** in TR Pro's plugin
+settings and in a startup log entry, so connection checks are possible even if
+the dashboard cannot be reached. A loopback listener accepts only local access;
+remote devices need a reachable bind address and TCP access through the firewall
+and VPN. The **Copy private dashboard link** button uses the current browser's
+working address; if clipboard access is unavailable, it shows a selectable link.
+Connection details are collapsed by default on phones.
+
+Current radio names arrive independently from GPS. Recorder name lists, exact
+radio edits, regular-expression names, OTA aliases and name-priority modes are
+applied to the map/list immediately, without inventing or rewriting GPS fixes.
+Clearing a current name does not resurrect an old name from recorded history.
+Local custom friendly names retain priority. Historical fix names remain a
+fallback where no current naming information is known. Live name state is
+refreshed from the recorder after plugin restarts.
 
 ## Dashboard and browser cache
 

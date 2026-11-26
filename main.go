@@ -44,6 +44,7 @@ type application struct {
 	server                                     *http.Server
 	output                                     *protocolOutput
 	dashboardURL                               string
+	listenAddress                              string
 }
 
 func tokenFor(dir string) (string, error) {
@@ -140,6 +141,7 @@ func startApplication(parent context.Context, c Config, dataDir string, out *pro
 		a.close()
 		return nil, fmt.Errorf("Dashboard bind address: %w", err)
 	}
+	a.listenAddress = listener.Addr().String()
 	host, port, _ := net.SplitHostPort(listener.Addr().String())
 	if c.AdvertiseHost != "auto" {
 		host = c.AdvertiseHost
@@ -177,16 +179,17 @@ func startApplication(parent context.Context, c Config, dataDir string, out *pro
 			}
 		}
 	}()
+	out.send(map[string]any{"type": "log", "level": "info", "message": fmt.Sprintf("GPS dashboard listening on %s; recorder source %s. Remote viewers must be able to reach the dashboard TCP port.", a.listenAddress, c.RecorderURL)})
 	return a, nil
 }
 func (a *application) publishDashboard() {
-	if a.config.DashboardURL == a.dashboardURL {
+	if a.config.DashboardURL == a.dashboardURL && a.config.DashboardListen == a.listenAddress {
 		return
 	}
 	a.output.mu.Lock()
 	defer a.output.mu.Unlock()
 	a.output.request++
-	a.output.encoder.Encode(map[string]any{"type": "settings.save", "request": a.output.request, "settings": map[string]string{"dashboard_url": a.dashboardURL}})
+	a.output.encoder.Encode(map[string]any{"type": "settings.save", "request": a.output.request, "settings": map[string]string{"dashboard_url": a.dashboardURL, "dashboard_listen": a.listenAddress}})
 }
 func (a *application) writePositions() {
 	defer close(a.writerDone)
@@ -208,8 +211,12 @@ func (a *application) writePositions() {
 			return false
 		}
 		if len(saved) > 0 {
+			a.state.mu.Lock()
+			a.state.lastSavedMs = time.Now().UnixMilli()
+			a.state.mu.Unlock()
 			a.hub.publish(map[string]any{"type": "gpsFix", "positions": saved})
 			a.publishStats()
+			a.publishState()
 		}
 		return true
 	}
@@ -308,6 +315,8 @@ func run(ctx context.Context, in <-chan hostMessage, out *protocolOutput) error 
 				left, right := c, next
 				left.DashboardURL = ""
 				right.DashboardURL = ""
+				left.DashboardListen = ""
+				right.DashboardListen = ""
 				if left == right {
 					continue
 				}

@@ -20,9 +20,17 @@ func main() {
 	}
 	var mu sync.Mutex
 	clients := map[*websocket.Conn]bool{}
+	available := true
 	ctx := context.Background()
 	mux := http.NewServeMux()
 	mux.HandleFunc("/api/ws", func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		ready := available
+		mu.Unlock()
+		if !ready {
+			http.Error(w, "fixture recorder unavailable", 503)
+			return
+		}
 		c, e := websocket.Accept(w, r, nil)
 		if e != nil {
 			return
@@ -74,6 +82,46 @@ func main() {
 			}
 		}
 		json.NewEncoder(w).Encode(map[string]int{"subscribers": len(clients)})
+	})
+
+	mux.HandleFunc("/test/event", func(w http.ResponseWriter, r *http.Request) {
+		var m map[string]any
+		if json.NewDecoder(r.Body).Decode(&m) != nil {
+			http.Error(w, "bad fixture", 400)
+			return
+		}
+		switch m["type"] {
+		case "unitAlias", "unitNames", "unitNameEdited", "units", "state":
+		default:
+			http.Error(w, "bad fixture type", 400)
+			return
+		}
+		b, _ := json.Marshal(m)
+		mu.Lock()
+		defer mu.Unlock()
+		for c := range clients {
+			c.Write(ctx, websocket.MessageText, b)
+		}
+		json.NewEncoder(w).Encode(map[string]bool{"ok": true})
+	})
+	mux.HandleFunc("/test/availability", func(w http.ResponseWriter, r *http.Request) {
+		var m struct {
+			Available bool `json:"available"`
+		}
+		if json.NewDecoder(r.Body).Decode(&m) != nil {
+			http.Error(w, "bad fixture", 400)
+			return
+		}
+		mu.Lock()
+		defer mu.Unlock()
+		available = m.Available
+		if !available {
+			for c := range clients {
+				c.CloseNow()
+				delete(clients, c)
+			}
+		}
+		json.NewEncoder(w).Encode(map[string]bool{"available": available})
 	})
 	mux.HandleFunc("/test/status", func(w http.ResponseWriter, r *http.Request) {
 		mu.Lock()

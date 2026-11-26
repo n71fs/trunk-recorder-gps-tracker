@@ -1,3 +1,4 @@
+import { currentRadioName, hasCurrentRadioName } from './radio-names.js';
 // Read-only client for the GPS plugin's own API, not a proxy for recorder controls.
 export class PluginClient {
   constructor() {
@@ -23,6 +24,8 @@ export class PluginClient {
       if (m.type === 'config') this.config = m.config;
       if (m.type === 'state') this.phase = { phase: m.phase, error: m.error, ended: m.ended };
       if (m.type === 'pluginStatus') { this.collector = m.collector; this.status = { nowS: m.collector.nowS }; }
+      if (m.type === 'radioNames') this.radioNames = m;
+      if (m.type === 'pluginInfo') this.info = m;
       if (m.type === 'pluginStats') this.pluginStats = m.stats;
       this.emit(m.type, m); this.emit('message', m); this.emit('change', this);
     };
@@ -38,6 +41,7 @@ export class PluginClient {
     this.ws.send(JSON.stringify(message));
   }
   subscribe(topics) { this.send({ type: 'subscribe', topics }); }
-  unitName() { return ''; } // Position records carry recorder-provided names.
+  unitName(system, unit) { return currentRadioName(this.radioNames, system, unit); }
+  hasUnitNames(system, unit) { return hasCurrentRadioName(this.radioNames, system, unit); }
   close() { this.closed = true; this.ws?.close(); }
 }

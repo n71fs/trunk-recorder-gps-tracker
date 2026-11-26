@@ -16,6 +16,8 @@ are refused; HTTP APIs do not enable CORS. API writes are refused.
 
 ## HTTP
 
+- `GET /api/gps/connection`: authenticated `pluginInfo` with version, actual
+  listener, dashboard origin (without token), recorder origin and localOnly flag.
 - `GET /api/gps/stats`: count, oldestMs/newestMs, retentionDays, maxPositions,
   and approximate SQLite/WAL file bytes.
 - `GET /api/gps/positions?from=<ms>&to=<ms>&system=<shortName>&unit=<id>&limit=<1..500>&cursor=<next>`:
@@ -33,7 +35,7 @@ history, not recorder control access.
 The client shim is served at `/api/client.js`, exporting `TrunkClient` from
 `plugin-client.js`. It implements the subset the bundled dashboard needs.
 
-On connection: `state`, sanitized `config`, `history` (up to 300 positions),
+On connection: `pluginInfo`, `radioNames`, `state`, sanitized `config`, `history` (up to 300 positions),
 `pluginStatus`, `hello`, `pluginStats`. `hello.capabilities` contains `calls`
 and `gpsHistory`. The config contains only safe system names and protocol kinds.
 
@@ -48,7 +50,17 @@ Incoming commands:
 Outgoing updates:
 
 - `gpsFix {positions: Fix[]}`: committed new fixes (not browser receipt events).
-- `pluginStatus {collector: {connected, recorderVersion, phase, nowS, config}}`.
+- `pluginInfo {version, listen, dashboardOrigin, recorderOrigin, localOnly}`.
+- `radioNames {aliases, rows, modes, completeAliases}`: current names by system,
+  separate from historical fix names. Rows contain only `unit`/`name`; mode is the
+  recorder's user/ota/user_only/none preference. A complete alias list also makes
+  removals authoritative. Naming updates are broadcast independently of GPS.
+- `pluginStatus {collector: {connected, recorderVersion, phase, nowS, config,
+  startedMs, connectedMs, disconnectedMs, lastMessageMs, lastLiveMs, lastSavedMs,
+  reconnects, gaps}}`: timestamps are Unix milliseconds (0 means none this session).
+  `lastLiveMs` is receipt of valid live GPS, `lastSavedMs` is a committed database
+  write. Gaps are the latest 20 source disconnections, `{fromMs,toMs}`; `toMs:0`
+  means ongoing. This bounded status is collector-local and resets on restart or settings reconfiguration.
 - `pluginStats {stats: {...}}`: database counts and retention.
 - `config`/`state`: safe source state updates.
 

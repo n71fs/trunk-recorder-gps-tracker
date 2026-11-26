@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"github.com/coder/websocket"
 	"io/fs"
+	"net"
 	"net/http"
 	"net/url"
 	"strings"
@@ -76,6 +77,13 @@ func (a *application) routes() http.Handler {
 		w.Write([]byte(`export {PluginClient as TrunkClient} from "/plugin-client.js";`))
 	})
 	mux.HandleFunc("/api/ws", a.socket)
+	mux.HandleFunc("/api/gps/connection", func(w http.ResponseWriter, r *http.Request) {
+		if !a.authorized(r) {
+			http.Error(w, "Private dashboard link required", 401)
+			return
+		}
+		writeJSON(w, a.connectionInfo())
+	})
 	mux.HandleFunc("/api/gps/stats", func(w http.ResponseWriter, r *http.Request) {
 		if !a.authorized(r) {
 			http.Error(w, "Private dashboard link required", 401)
@@ -192,7 +200,7 @@ func (a *application) socket(w http.ResponseWriter, r *http.Request) {
 	if e != nil {
 		return
 	}
-	initial := []any{map[string]any{"type": "state", "phase": state["phase"], "error": nil, "ended": false}, map[string]any{"type": "config", "config": state["config"]}, map[string]any{"type": "history", "entries": []any{}, "positions": positions, "next": next}, map[string]any{"type": "pluginStatus", "collector": state}, map[string]any{"type": "hello", "version": "GPS history " + version, "api": 1, "capabilities": []string{"calls", "gpsHistory"}}}
+	initial := []any{a.connectionInfo(), a.state.nameSnapshot(), map[string]any{"type": "state", "phase": state["phase"], "error": nil, "ended": false}, map[string]any{"type": "config", "config": state["config"]}, map[string]any{"type": "history", "entries": []any{}, "positions": positions, "next": next}, map[string]any{"type": "pluginStatus", "collector": state}, map[string]any{"type": "hello", "version": "GPS history " + version, "api": 1, "capabilities": []string{"calls", "gpsHistory"}}}
 	if stats, err := a.store.stats(); err == nil {
 		initial = append(initial, map[string]any{"type": "pluginStats", "stats": stats})
 	}
@@ -255,4 +263,13 @@ func (a *application) socket(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
+}
+
+func (a *application) connectionInfo() map[string]any {
+	host, _, _ := net.SplitHostPort(a.listenAddress)
+	ip := net.ParseIP(host)
+	local := ip != nil && ip.IsLoopback()
+	u, _ := url.Parse(a.dashboardURL)
+	u.Fragment = ""
+	return map[string]any{"type": "pluginInfo", "version": version, "listen": a.listenAddress, "dashboardOrigin": u.String(), "recorderOrigin": a.config.RecorderURL, "localOnly": local}
 }
